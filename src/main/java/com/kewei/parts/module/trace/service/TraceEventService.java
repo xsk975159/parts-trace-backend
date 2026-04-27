@@ -31,7 +31,7 @@ public interface TraceEventService {
     TraceEvent createEvent(TraceEvent event);
 
     /** 前端兼容：事件列表（支持多条件查询） */
-    List<TraceEvent> getEventList(Long partsId, String partsCode, String eventType);
+    List<TraceEvent> getEventList(Long partsId, Long unitId, String partsCode, String eventType);
 
     /** 前端兼容：凭证列"*/
     List<?> getCertificateList(Long partsId, String partsCode);

@@ -1,0 +1,6 @@
+target/
+*.log
+# 合约编译产物（在链环境编译）
+contracts/trace_anchor/*.wasm
+# 长安链 SDK 本地配置（从 sdk_config.yml.example 复制，含证书路径与密钥，勿提交）
+src/main/resources/chainmaker/sdk_config.yml

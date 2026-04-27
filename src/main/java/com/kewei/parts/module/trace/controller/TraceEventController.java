@@ -82,9 +82,10 @@ public class TraceEventController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Long partsId,
+            @RequestParam(required = false) Long unitId,
             @RequestParam(required = false) String partsCode,
             @RequestParam(required = false) String eventType) {
-        List<TraceEvent> events = traceEventService.getEventList(partsId, partsCode, eventType);
+        List<TraceEvent> events = traceEventService.getEventList(partsId, unitId, partsCode, eventType);
         Map<String, Object> result = new java.util.HashMap<>();
         result.put("list", events);
         result.put("total", events.size());
@@ -233,16 +234,7 @@ public class TraceEventController {
                 throw new BusinessException("不支持的事件类型");
         }
 
-        VerifiableCredential vc = null;
-        if (Boolean.TRUE.equals(dto.getIssueVc())) {
-            if ("production".equals(eventType)) {
-                vc = credentialService.issueProductionCertificate(event.getId());
-            } else if ("quality".equals(eventType)) {
-                vc = credentialService.issueQualityReport(event.getId());
-            } else if ("logistics".equals(eventType)) {
-                vc = credentialService.issueTransferCertificate(event.getId());
-            }
-        }
+        VerifiableCredential vc = issueVcForEvent(event, eventType);
 
         Map<String, Object> result = new java.util.HashMap<>();
         result.put("event", event);
@@ -254,7 +246,7 @@ public class TraceEventController {
     @Operation(summary = "工作台待办任务")
     @GetMapping("/workbench/tasks")
     public Result<List<Map<String, Object>>> getWorkbenchTasks(@RequestParam(defaultValue = "20") Integer limit) {
-        List<TraceEvent> events = traceEventService.getEventList(null, null, null);
+        List<TraceEvent> events = traceEventService.getEventList(null, null, null, null);
         List<Map<String, Object>> tasks = new ArrayList<>();
         for (TraceEvent e : events) {
             Map<String, Object> t = new java.util.HashMap<>();
@@ -273,19 +265,23 @@ public class TraceEventController {
         return Result.success(tasks);
     }
 
-    @Operation(summary = "工作台批次列表")
+    @Operation(summary = "工作台批次列表（含进度摘要）")
     @GetMapping("/workbench/batches")
-    public Result<List<String>> getWorkbenchBatches() {
+    public Result<List<Map<String, Object>>> getWorkbenchBatches() {
         List<PartsInfo> all = partsInfoMapper.selectList(new LambdaQueryWrapper<PartsInfo>()
                 .isNotNull(PartsInfo::getBatchNumber)
                 .orderByDesc(PartsInfo::getCreateTime));
-        List<String> batches = new ArrayList<>();
+        List<String> batchNumbers = new ArrayList<>();
         for (PartsInfo p : all) {
-            if (p.getBatchNumber() != null && !batches.contains(p.getBatchNumber())) {
-                batches.add(p.getBatchNumber());
+            if (p.getBatchNumber() != null && !batchNumbers.contains(p.getBatchNumber())) {
+                batchNumbers.add(p.getBatchNumber());
             }
         }
-        return Result.success(batches);
+        List<Map<String, Object>> summaries = new ArrayList<>();
+        for (String batchNumber : batchNumbers) {
+            summaries.add(buildBatchSummary(batchNumber));
+        }
+        return Result.success(summaries);
     }
 
     @Operation(summary = "工作台批次流程视图")
@@ -519,25 +515,40 @@ public class TraceEventController {
             }
         }
 
+        List<Long> filterUnitIds = dto.getUnitIds();
+        if (filterUnitIds != null && !filterUnitIds.isEmpty()) {
+            java.util.Set<Long> allowedUnits = new java.util.HashSet<>(filterUnitIds);
+            List<PartsUnit> filteredUnits = new ArrayList<>();
+            for (PartsUnit u : units) {
+                if (allowedUnits.contains(u.getId())) {
+                    filteredUnits.add(u);
+                }
+            }
+            units = filteredUnits;
+            if (units.isEmpty()) {
+                throw new BusinessException("所选单件在当前批次下不可处理");
+            }
+        }
+
         int success = 0;
         int failed = 0;
+        List<Map<String, Object>> successes = new ArrayList<>();
         List<Map<String, Object>> failures = new ArrayList<>();
         if (!units.isEmpty()) {
             for (PartsUnit u : units) {
                 try {
-                    TraceEvent event = doSingleByActionType(u.getPartsId(), actionType, dto);
-                    event.setUnitId(u.getId());
-                    traceEventMapper.updateById(event);
-                    if (Boolean.TRUE.equals(dto.getIssueVc())) {
-                        if ("production".equals(actionType)) {
-                            credentialService.issueProductionCertificate(event.getId());
-                        } else if ("quality".equals(actionType)) {
-                            credentialService.issueQualityReport(event.getId());
-                        } else {
-                            credentialService.issueTransferCertificate(event.getId());
-                        }
-                    }
+                    assertUnitEligibleForAction(u.getId(), actionType);
+                    TraceEvent event = doSingleByActionType(u.getPartsId(), u.getId(), actionType, dto);
+                    VerifiableCredential vc = issueVcForEvent(event, actionType);
                     success++;
+                    Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("unitId", u.getId());
+                    item.put("unitCode", u.getUnitCode());
+                    item.put("partsId", u.getPartsId());
+                    item.put("eventId", event.getId());
+                    item.put("vcId", vc != null ? vc.getVcId() : null);
+                    item.put("message", "事件存证与 VC 签发完成");
+                    successes.add(item);
                 } catch (Exception ex) {
                     failed++;
                     Map<String, Object> item = new java.util.HashMap<>();
@@ -550,17 +561,16 @@ public class TraceEventController {
         } else {
             for (PartsInfo p : parts) {
                 try {
-                    TraceEvent event = doSingleByActionType(p.getId(), actionType, dto);
-                    if (Boolean.TRUE.equals(dto.getIssueVc())) {
-                        if ("production".equals(actionType)) {
-                            credentialService.issueProductionCertificate(event.getId());
-                        } else if ("quality".equals(actionType)) {
-                            credentialService.issueQualityReport(event.getId());
-                        } else {
-                            credentialService.issueTransferCertificate(event.getId());
-                        }
-                    }
+                    TraceEvent event = doSingleByActionType(p.getId(), null, actionType, dto);
+                    VerifiableCredential vc = issueVcForEvent(event, actionType);
                     success++;
+                    Map<String, Object> item = new java.util.HashMap<>();
+                    item.put("partsId", p.getId());
+                    item.put("partsCode", p.getPartsCode());
+                    item.put("eventId", event.getId());
+                    item.put("vcId", vc != null ? vc.getVcId() : null);
+                    item.put("message", "事件存证与 VC 签发完成");
+                    successes.add(item);
                 } catch (Exception ex) {
                     failed++;
                     Map<String, Object> item = new java.util.HashMap<>();
@@ -577,6 +587,7 @@ public class TraceEventController {
         result.put("total", !units.isEmpty() ? units.size() : parts.size());
         result.put("success", success);
         result.put("failed", failed);
+        result.put("successes", successes);
         result.put("failures", failures);
         return Result.success("批次处理完成", result);
     }
@@ -720,10 +731,49 @@ public class TraceEventController {
         throw new BusinessException("无权限执行该操作");
     }
 
-    private TraceEvent doSingleByActionType(Long partsId, String actionType, WorkbenchBatchActionDTO dto) {
+    private void assertUnitEligibleForAction(Long unitId, String actionType) {
+        PartsDid did = partsDidMapper.selectOne(new LambdaQueryWrapper<PartsDid>()
+                .eq(PartsDid::getUnitId, unitId).last("LIMIT 1"));
+        if (did == null || (did.getDidStatus() != null && did.getDidStatus() == 2)) {
+            throw new BusinessException("单件 DID 未激活或已冻结");
+        }
+        TraceEvent latest = traceEventMapper.selectOne(new LambdaQueryWrapper<TraceEvent>()
+                .eq(TraceEvent::getUnitId, unitId)
+                .orderByDesc(TraceEvent::getEventTime)
+                .last("LIMIT 1"));
+        Long vcCount = verifiableCredentialMapper.selectCount(new LambdaQueryWrapper<VerifiableCredential>()
+                .eq(VerifiableCredential::getUnitId, unitId));
+        String phase = resolveUnitPhase(latest, vcCount);
+        if ("done".equals(phase) || "none".equals(phase)) {
+            throw new BusinessException("单件当前阶段不可登记事件");
+        }
+        if (!actionType.equals(phase)) {
+            throw new BusinessException("单件当前阶段不允许登记「" + actionType + "」事件，期望「" + phase + "」");
+        }
+    }
+
+    private String resolveUnitPhase(TraceEvent latest, Long vcCount) {
+        if (latest == null || latest.getEventType() == null) {
+            return "production";
+        }
+        String t = latest.getEventType().toLowerCase();
+        if (vcCount != null && vcCount > 0 && "logistics".equals(t)) {
+            return "done";
+        }
+        if ("quality".equals(t)) {
+            return "logistics";
+        }
+        if ("production".equals(t)) {
+            return "quality";
+        }
+        return "production";
+    }
+
+    private TraceEvent doSingleByActionType(Long partsId, Long unitId, String actionType, WorkbenchBatchActionDTO dto) {
         if ("production".equals(actionType)) {
             ProductionEventDTO p = new ProductionEventDTO();
             p.setPartsId(partsId);
+            p.setUnitId(unitId);
             p.setEventName(dto.getEventName() == null ? "批次生产记录" : dto.getEventName());
             p.setEventTime(dto.getEventTime() == null ? new java.util.Date() : dto.getEventTime());
             p.setEventLocation(dto.getEventLocation());
@@ -738,6 +788,7 @@ public class TraceEventController {
         if ("quality".equals(actionType)) {
             QualityEventDTO q = new QualityEventDTO();
             q.setPartsId(partsId);
+            q.setUnitId(unitId);
             q.setEventName(dto.getEventName() == null ? "批次质检记录" : dto.getEventName());
             q.setEventTime(dto.getEventTime() == null ? new java.util.Date() : dto.getEventTime());
             q.setEventLocation(dto.getEventLocation());
@@ -752,6 +803,7 @@ public class TraceEventController {
         }
         LogisticsEventDTO l = new LogisticsEventDTO();
         l.setPartsId(partsId);
+        l.setUnitId(unitId);
         l.setEventName(dto.getEventName() == null ? "批次物流记录" : dto.getEventName());
         l.setEventTime(dto.getEventTime() == null ? new java.util.Date() : dto.getEventTime());
         l.setEventLocation(dto.getEventLocation());
@@ -762,6 +814,184 @@ public class TraceEventController {
         l.setLogisticsType(dto.getLogisticsType() == null ? "批次物流" : dto.getLogisticsType());
         l.setTrackingNumber(dto.getTrackingNumber());
         return traceEventService.recordLogisticsEvent(l);
+    }
+
+    /** 事件与 VC 一体签发（DID + VC + 链上锚定闭环） */
+    private VerifiableCredential issueVcForEvent(TraceEvent event, String actionType) {
+        if ("production".equals(actionType)) {
+            return credentialService.issueProductionCertificate(event.getId());
+        }
+        if ("quality".equals(actionType)) {
+            return credentialService.issueQualityReport(event.getId());
+        }
+        return credentialService.issueTransferCertificate(event.getId());
+    }
+
+    private Map<String, Object> buildBatchSummary(String batchNumber) {
+        List<PartsInfo> partsMeta = partsInfoMapper.selectList(new LambdaQueryWrapper<PartsInfo>()
+                .eq(PartsInfo::getBatchNumber, batchNumber)
+                .orderByDesc(PartsInfo::getCreateTime)
+                .orderByDesc(PartsInfo::getId));
+        BigDecimal plannedQuantitySum = BigDecimal.ZERO;
+        for (PartsInfo pi : partsMeta) {
+            if (pi.getQuantity() != null) {
+                plannedQuantitySum = plannedQuantitySum.add(pi.getQuantity());
+            }
+        }
+        PartsInfo first = partsMeta.isEmpty() ? null : partsMeta.get(0);
+
+        List<PartsUnit> units = partsUnitMapper.selectList(new LambdaQueryWrapper<PartsUnit>()
+                .eq(PartsUnit::getBatchNumber, batchNumber)
+                .orderByAsc(PartsUnit::getId));
+
+        int totalParts = 0;
+        int completedParts = 0;
+        int withDidCount = 0;
+        String minPhase = "done";
+
+        if (units.isEmpty()) {
+            totalParts = partsMeta.size();
+            for (PartsInfo p : partsMeta) {
+                PartsDid did = partsDidMapper.selectOne(new LambdaQueryWrapper<PartsDid>()
+                        .eq(PartsDid::getPartsId, p.getId()).last("LIMIT 1"));
+                Long eventCount = traceEventMapper.selectCount(new LambdaQueryWrapper<TraceEvent>()
+                        .eq(TraceEvent::getPartsId, p.getId()));
+                Long vcCount = verifiableCredentialMapper.selectCount(new LambdaQueryWrapper<VerifiableCredential>()
+                        .eq(VerifiableCredential::getPartsId, p.getId()));
+                TraceEvent latest = traceEventMapper.selectOne(new LambdaQueryWrapper<TraceEvent>()
+                        .eq(TraceEvent::getPartsId, p.getId())
+                        .orderByDesc(TraceEvent::getEventTime)
+                        .last("LIMIT 1"));
+                if (did != null && did.getDid() != null) {
+                    withDidCount++;
+                }
+                String stage = resolveLegacyStage(did, eventCount, vcCount);
+                if ("流程完成".equals(stage)) {
+                    completedParts++;
+                }
+                String phase = resolveUnitPhase(
+                        latest == null ? null : latest.getEventType(),
+                        did != null && did.getDid() != null,
+                        did == null ? null : did.getDidStatus(),
+                        vcCount == null ? 0L : vcCount);
+                minPhase = minPhaseByOrder(minPhase, phase);
+            }
+        } else {
+            totalParts = units.size();
+            for (PartsUnit u : units) {
+                PartsDid did = partsDidMapper.selectOne(new LambdaQueryWrapper<PartsDid>()
+                        .eq(PartsDid::getUnitId, u.getId()).last("LIMIT 1"));
+                Long eventCount = traceEventMapper.selectCount(new LambdaQueryWrapper<TraceEvent>()
+                        .eq(TraceEvent::getUnitId, u.getId()));
+                Long vcCount = verifiableCredentialMapper.selectCount(new LambdaQueryWrapper<VerifiableCredential>()
+                        .eq(VerifiableCredential::getUnitId, u.getId()));
+                TraceEvent latest = traceEventMapper.selectOne(new LambdaQueryWrapper<TraceEvent>()
+                        .eq(TraceEvent::getUnitId, u.getId())
+                        .orderByDesc(TraceEvent::getEventTime)
+                        .last("LIMIT 1"));
+                if (did != null && did.getDid() != null) {
+                    withDidCount++;
+                }
+                String stage = resolveLegacyStage(did, eventCount, vcCount);
+                if ("流程完成".equals(stage)) {
+                    completedParts++;
+                }
+                String phase = resolveUnitPhase(
+                        latest == null ? null : latest.getEventType(),
+                        did != null && did.getDid() != null,
+                        did == null ? null : did.getDidStatus(),
+                        vcCount == null ? 0L : vcCount);
+                minPhase = minPhaseByOrder(minPhase, phase);
+            }
+        }
+
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("batchNumber", batchNumber);
+        summary.put("partsCode", first == null ? "-" : first.getPartsCode());
+        summary.put("partsName", first == null ? "-" : first.getPartsName());
+        summary.put("manufacturer", first == null ? "-" : first.getManufacturer());
+        summary.put("plannedQuantity", plannedQuantitySum);
+        summary.put("partsInfoRowCount", partsMeta.size());
+        summary.put("totalParts", totalParts);
+        summary.put("completedParts", completedParts);
+        summary.put("completionRate", totalParts == 0 ? 0 : (completedParts * 100 / totalParts));
+        summary.put("withDidCount", withDidCount);
+        summary.put("currentPhase", phaseText(minPhase));
+        summary.put("currentPhaseCode", minPhase);
+        return summary;
+    }
+
+    private String resolveLegacyStage(PartsDid did, Long eventCount, Long vcCount) {
+        long events = eventCount == null ? 0L : eventCount;
+        long vcs = vcCount == null ? 0L : vcCount;
+        if (did == null) {
+            return "待生成DID";
+        }
+        if (did.getDidStatus() != null && did.getDidStatus() == 2) {
+            return "DID冻结";
+        }
+        if (events == 0) {
+            return "待记录事件";
+        }
+        if (vcs == 0) {
+            return "待签发VC";
+        }
+        return "流程完成";
+    }
+
+    private String resolveUnitPhase(String latestEventType, boolean hasDid, Integer didStatus, long vcCount) {
+        if (!hasDid || (didStatus != null && didStatus == 2)) {
+            return "none";
+        }
+        String t = latestEventType == null ? "" : latestEventType.toLowerCase();
+        if (vcCount > 0 && "logistics".equals(t)) {
+            return "done";
+        }
+        if ("quality".equals(t)) {
+            return "logistics";
+        }
+        if ("production".equals(t)) {
+            return "quality";
+        }
+        return "production";
+    }
+
+    private String minPhaseByOrder(String current, String candidate) {
+        return phaseOrder(candidate) < phaseOrder(current) ? candidate : current;
+    }
+
+    private int phaseOrder(String phase) {
+        switch (phase) {
+            case "none":
+                return 0;
+            case "production":
+                return 1;
+            case "quality":
+                return 2;
+            case "logistics":
+                return 3;
+            case "done":
+                return 4;
+            default:
+                return 0;
+        }
+    }
+
+    private String phaseText(String phase) {
+        switch (phase) {
+            case "none":
+                return "待DID激活";
+            case "production":
+                return "待生产事件";
+            case "quality":
+                return "待质检事件";
+            case "logistics":
+                return "待物流事件";
+            case "done":
+                return "全流程完成";
+            default:
+                return "未知";
+        }
     }
 }
 

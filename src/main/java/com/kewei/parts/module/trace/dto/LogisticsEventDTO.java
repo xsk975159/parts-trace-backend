@@ -16,6 +16,9 @@ public class LogisticsEventDTO implements Serializable {
 
     @NotNull(message = "零部件ID不能为空")
     private Long partsId;
+
+    /** 单件ID（批次工作台按单件处理时传入） */
+    private Long unitId;
     
     @NotBlank(message = "事件名称不能为空")
     private String eventName;

@@ -84,14 +84,28 @@ jwt:
   header: Authorization
   prefix: "Bearer "
 
-# DID閰嶇疆
+# DID
 did:
   method: chainmaker
   chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
 
-# 闀垮畨閾鹃厤缃?
+# ChainMaker（SDK 配置见 chainmaker/sdk_config.yml，可从 sdk_config.yml.example 复制）
 chainmaker:
   chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
   org-id: ${CHAINMAKER_ORG_ID:wx-org1.chainmaker.org}
   config-path: classpath:chainmaker/sdk_config.yml
+  # 锚点合约预留（5.1：事件/VC 哈希上链；实现 ChainMakerChainStorageAdapter 后使用）
+  anchor-contract: ${CHAINMAKER_ANCHOR_CONTRACT:}
+  wasm-contract-name: ${CHAINMAKER_WASM_CONTRACT:trace_anchor}
+  sdk:
+    # 打开后需有效 sdk_config.yml 与已部署的 Wasm 合约；默认 false 以免本地无链启动失败
+    invoke-enabled: ${CHAINMAKER_SDK_INVOKE_ENABLED:false}
+    invoke-timeout-ms: ${CHAINMAKER_INVOKE_TIMEOUT_MS:60000}
+
+# Trace storage adapters
+parts:
+  trace:
+    storage:
+      chain-mode: ${PARTS_TRACE_CHAIN_MODE:db}
+      object-mode: ${PARTS_TRACE_OBJECT_MODE:db}
 

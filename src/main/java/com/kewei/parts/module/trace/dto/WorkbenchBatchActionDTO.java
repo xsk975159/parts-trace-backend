@@ -40,4 +40,7 @@ public class WorkbenchBatchActionDTO {
 
     /** 可选：仅处理这些 parts_info 下的单件；不传或空则整批 */
     private List<Long> partsIds;
+
+    /** 可选：仅处理这些单件；工作台应传当前阶段可处理的 unitId 列表 */
+    private List<Long> unitIds;
 }

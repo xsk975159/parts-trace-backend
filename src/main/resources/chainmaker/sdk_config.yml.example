@@ -1,0 +1,29 @@
+# ChainMaker Java SDK 节点配置示例
+# 使用方式：复制本文件为同目录下的 sdk_config.yml，按实际网络修改后启动后端。
+# 注意：sdk_config.yml 内含证书路径与敏感信息，请勿提交到 Git。
+
+chain_client:
+  # 与链上 chain-id、application.yml 中 CHAINMAKER_CHAIN_ID 一致
+  chain_id: chain1
+  org_id: wx-org1.chainmaker.org
+
+  # 示例：单节点调试（正式环境为多个 - hosts）
+  nodes:
+    - node_addr: "127.0.0.1:12301"
+      conn_cnt: 10
+      enable_tls: true
+      trust_root_items:
+        - org_id: wx-org1.chainmaker.org
+          root: "../crypto/wx-org1.chainmaker.org/ca/wx-org1.chainmaker.org.ca.crt"
+
+  archive:
+    type: ""
+    dest: ""
+
+  rpc_client:
+    max_receive_message_size: 200
+    max_send_message_size: 200
+
+# 用户私钥等通常通过 UserContract 构造时传入，此处仅保留节点连接说明。
+# 完整模板请以长安链官方文档「Java SDK 配置说明」为准：
+# https://docs.chainmaker.org.cn/

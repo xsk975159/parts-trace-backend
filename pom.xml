@@ -124,6 +124,13 @@
             <artifactId>chainmaker-sdk-java</artifactId>
             <version>${chainmaker.version}</version>
         </dependency>
+
+        <!-- chainmaker-sdk 传递依赖在编译期需显式引入 protobuf 以解析 TxResponse -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.21.12</version>
+        </dependency>
     </dependencies>
 
     <build>

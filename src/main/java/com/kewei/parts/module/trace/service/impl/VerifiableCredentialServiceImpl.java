@@ -3,6 +3,7 @@ package com.kewei.parts.module.trace.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.kewei.parts.common.BusinessException;
+import com.kewei.parts.infrastructure.storage.ChainAnchorRequest;
 import com.kewei.parts.infrastructure.storage.ChainStorageAdapter;
 import com.kewei.parts.infrastructure.storage.ObjectStorageAdapter;
 import com.kewei.parts.module.parts.entity.PartsDid;
@@ -79,7 +80,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         String issuerDid = getUserDid(event.getOperatorId());
 
         // 获取零部件DID
-        String subjectDid = getPartsDid(event.getPartsId());
+        String subjectDid = getPartsDid(event.getPartsId(), event.getUnitId());
 
         // 构建凭证数据
         Map<String, Object> credentialData = buildProductionCredentialData(event, production);
@@ -120,7 +121,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         TraceQuality quality = traceQualityMapper.selectOne(wrapper);
 
         String issuerDid = getUserDid(event.getOperatorId());
-        String subjectDid = getPartsDid(event.getPartsId());
+        String subjectDid = getPartsDid(event.getPartsId(), event.getUnitId());
 
         Map<String, Object> credentialData = buildQualityCredentialData(event, quality);
 
@@ -159,7 +160,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         TraceLogistics logistics = traceLogisticsMapper.selectOne(wrapper);
 
         String issuerDid = getUserDid(event.getOperatorId());
-        String subjectDid = getPartsDid(event.getPartsId());
+        String subjectDid = getPartsDid(event.getPartsId(), event.getUnitId());
 
         Map<String, Object> credentialData = buildLogisticsCredentialData(event, logistics);
 
@@ -198,7 +199,7 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         wrapper.orderByAsc(TraceEvent::getEventTime);
         List<TraceEvent> events = traceEventMapper.selectList(wrapper);
 
-        String subjectDid = getPartsDid(partsId);
+        String subjectDid = getPartsDid(partsId, null);
 
         Map<String, Object> credentialData = buildComprehensiveCredentialData(partsInfo, events);
 
@@ -339,9 +340,14 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
     /**
      * 获取零部件DID
      */
-    private String getPartsDid(Long partsId) {
+    private String getPartsDid(Long partsId, Long unitId) {
         LambdaQueryWrapper<PartsDid> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(PartsDid::getPartsId, partsId);
+        if (unitId != null) {
+            wrapper.eq(PartsDid::getUnitId, unitId);
+        } else {
+            wrapper.eq(PartsDid::getPartsId, partsId);
+        }
+        wrapper.orderByDesc(PartsDid::getId).last("LIMIT 1");
         PartsDid partsDid = partsDidMapper.selectOne(wrapper);
         return partsDid != null ? partsDid.getDid() : "unknown";
     }
@@ -437,10 +443,17 @@ public class VerifiableCredentialServiceImpl implements VerifiableCredentialServ
         String normalized = credential.getCredentialData() == null ? "" : credential.getCredentialData();
         String vcHash = didUtil.sha256Hex(normalized);
         ObjectStorageAdapter.StoreObjectResult obj = objectStorageAdapter.store("vc", credential.getId(), normalized);
-        ChainStorageAdapter.StoreChainResult chain = chainStorageAdapter.storeHash("vc", credential.getId(), vcHash);
+        ChainStorageAdapter.StoreChainResult chain = chainStorageAdapter.storeAnchor(ChainAnchorRequest.builder()
+                .businessType("vc")
+                .businessId(credential.getId())
+                .dataHash(vcHash)
+                .objectCid(obj.getCid())
+                .partsDid(credential.getSubjectDid())
+                .build());
         credential.setBlockchainTxId(chain.getTxId());
         credential.setCredentialData(appendStorageMeta(normalized, vcHash, obj.getCid()));
         credentialMapper.updateById(credential);
+        chainStorageAdapter.appendVcIfSupported(credential.getSubjectDid(), credential.getVcId(), vcHash);
     }
 
     private String appendStorageMeta(String credentialData, String vcHash, String cid) {

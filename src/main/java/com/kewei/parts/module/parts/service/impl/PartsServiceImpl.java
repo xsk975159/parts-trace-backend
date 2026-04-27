@@ -3,6 +3,7 @@ package com.kewei.parts.module.parts.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kewei.parts.common.BusinessException;
+import com.kewei.parts.infrastructure.storage.ChainAnchorRequest;
 import com.kewei.parts.infrastructure.storage.ChainStorageAdapter;
 import com.kewei.parts.infrastructure.storage.ObjectStorageAdapter;
 import com.kewei.parts.module.parts.dto.PartsCreateDTO;
@@ -618,7 +619,13 @@ public class PartsServiceImpl implements PartsService {
         ObjectStorageAdapter.StoreObjectResult objectResult =
                 objectStorageAdapter.store("did_document_unit", unitId, didDocument);
         ChainStorageAdapter.StoreChainResult chainResult =
-                chainStorageAdapter.storeHash("did_document_unit", unitId, objectResult.getContentHash());
+                chainStorageAdapter.storeAnchor(ChainAnchorRequest.builder()
+                        .businessType("did_document_unit")
+                        .businessId(unitId)
+                        .dataHash(objectResult.getContentHash())
+                        .objectCid(objectResult.getCid())
+                        .partsDid(did)
+                        .build());
 
         PartsDid partsDid = new PartsDid();
         partsDid.setPartsId(unit.getPartsId());

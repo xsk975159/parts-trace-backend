@@ -1,3 +1,4 @@
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\storage\impl\ChainMakerChainStorageAdapter.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\anomaly\chain\NoopAnomalyChainContractHook.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\utils\JwtUtil.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\mapper\TraceEventMapper.java
@@ -33,6 +34,7 @@ E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\identity\service\DidService.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\vo\TraceEventDetailVO.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\parts\entity\BlockchainRecord.java
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\storage\ChainAnchorRequest.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\parts\entity\PartsInfo.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\dashboard\controller\DashboardController.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\service\UserService.java
@@ -66,6 +68,7 @@ E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\entity\SysUser.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\anomaly\chain\AnomalyChainContractHook.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\vo\UserLoginVO.java
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\chainmaker\CrossChainAnchorPayload.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\vo\UserInfoVO.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\identity\controller\DidController.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\controller\RoleController.java
@@ -75,6 +78,7 @@ E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\ident
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\identity\service\impl\RsaKeyServiceImpl.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\parts\controller\PartsCategoryController.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\service\impl\TraceEventServiceImpl.java
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\storage\impl\IpfsObjectStorageAdapter.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\anomaly\entity\AnomalyRule.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\identity\entity\SysUserRsaKey.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\exception\GlobalExceptionHandler.java
@@ -84,6 +88,7 @@ E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\anoma
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\entity\TraceQuality.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\service\PermissionService.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\config\MyBatisPlusConfig.java
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\chainmaker\ChainMakerSdkInvoker.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\entity\SysRolePermission.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\parts\vo\PartsDidVO.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\service\impl\UserServiceImpl.java
@@ -100,6 +105,7 @@ E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\utils\RsaUti
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\entity\TraceProduction.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\mapper\SysRolePermissionMapper.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\parts\dto\PartsUpdateDTO.java
+E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\infrastructure\chainmaker\CrossChainRelayService.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\trace\dto\WorkbenchBatchActionDTO.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\system\dto\UserLoginDTO.java
 E:\DeskTop\SuYuan\parts-trace-backend\src\main\java\com\kewei\parts\module\identity\mapper\SysUserRsaKeyMapper.java

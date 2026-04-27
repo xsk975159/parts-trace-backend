@@ -2,12 +2,15 @@ package com.kewei.parts.module.trace.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.kewei.parts.common.BusinessException;
+import com.kewei.parts.infrastructure.storage.ChainAnchorRequest;
 import com.kewei.parts.infrastructure.storage.ChainStorageAdapter;
 import com.kewei.parts.infrastructure.storage.ObjectStorageAdapter;
 import com.kewei.parts.module.parts.entity.PartsDid;
 import com.kewei.parts.module.parts.entity.PartsInfo;
+import com.kewei.parts.module.parts.entity.PartsUnit;
 import com.kewei.parts.module.parts.mapper.PartsDidMapper;
 import com.kewei.parts.module.parts.mapper.PartsInfoMapper;
+import com.kewei.parts.module.parts.mapper.PartsUnitMapper;
 import com.kewei.parts.module.trace.dto.LogisticsEventDTO;
 import com.kewei.parts.module.trace.dto.ProductionEventDTO;
 import com.kewei.parts.module.trace.dto.QualityEventDTO;
@@ -33,6 +36,7 @@ public class TraceEventServiceImpl implements TraceEventService {
     @Autowired private VerifiableCredentialMapper verifiableCredentialMapper;
     @Autowired private PartsInfoMapper partsInfoMapper;
     @Autowired private PartsDidMapper partsDidMapper;
+    @Autowired private PartsUnitMapper partsUnitMapper;
     @Autowired private ObjectStorageAdapter objectStorageAdapter;
     @Autowired private ChainStorageAdapter chainStorageAdapter;
     @Autowired private DidUtil didUtil;
@@ -41,9 +45,9 @@ public class TraceEventServiceImpl implements TraceEventService {
     @Transactional(rollbackFor = Exception.class)
     public TraceEvent recordProductionEvent(ProductionEventDTO dto) {
         if (partsInfoMapper.selectById(dto.getPartsId()) == null) throw new BusinessException("part not found");
-        ensurePartsDidActivated(dto.getPartsId());
-        TraceEvent e = buildBase(generateCode("PROD"), dto.getPartsId(), "production", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
-        TraceEvent prev = getLastEvent(dto.getPartsId());
+        ensurePartsDidActivated(dto.getPartsId(), dto.getUnitId());
+        TraceEvent e = buildBase(generateCode("PROD"), dto.getPartsId(), dto.getUnitId(), "production", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
+        TraceEvent prev = getLastEvent(dto.getPartsId(), dto.getUnitId());
         if (prev != null) e.setPreviousEventId(prev.getId());
         traceEventMapper.insert(e);
         persistEventStorage(e);
@@ -63,9 +67,9 @@ public class TraceEventServiceImpl implements TraceEventService {
     @Transactional(rollbackFor = Exception.class)
     public TraceEvent recordQualityEvent(QualityEventDTO dto) {
         if (partsInfoMapper.selectById(dto.getPartsId()) == null) throw new BusinessException("part not found");
-        ensurePartsDidActivated(dto.getPartsId());
-        TraceEvent e = buildBase(generateCode("QUAL"), dto.getPartsId(), "quality", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
-        TraceEvent prev = getLastEvent(dto.getPartsId());
+        ensurePartsDidActivated(dto.getPartsId(), dto.getUnitId());
+        TraceEvent e = buildBase(generateCode("QUAL"), dto.getPartsId(), dto.getUnitId(), "quality", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
+        TraceEvent prev = getLastEvent(dto.getPartsId(), dto.getUnitId());
         if (prev != null) e.setPreviousEventId(prev.getId());
         traceEventMapper.insert(e);
         persistEventStorage(e);
@@ -86,9 +90,9 @@ public class TraceEventServiceImpl implements TraceEventService {
     @Transactional(rollbackFor = Exception.class)
     public TraceEvent recordLogisticsEvent(LogisticsEventDTO dto) {
         if (partsInfoMapper.selectById(dto.getPartsId()) == null) throw new BusinessException("part not found");
-        ensurePartsDidActivated(dto.getPartsId());
-        TraceEvent e = buildBase(generateCode("LOGI"), dto.getPartsId(), "logistics", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
-        TraceEvent prev = getLastEvent(dto.getPartsId());
+        ensurePartsDidActivated(dto.getPartsId(), dto.getUnitId());
+        TraceEvent e = buildBase(generateCode("LOGI"), dto.getPartsId(), dto.getUnitId(), "logistics", dto.getEventName(), dto.getEventTime(), dto.getEventLocation(), dto.getOperatorId(), dto.getOperatorName(), dto.getOrganization(), dto.getEvidenceUrls(), dto.getRemark());
+        TraceEvent prev = getLastEvent(dto.getPartsId(), dto.getUnitId());
         if (prev != null) e.setPreviousEventId(prev.getId());
         traceEventMapper.insert(e);
         persistEventStorage(e);
@@ -117,11 +121,22 @@ public class TraceEventServiceImpl implements TraceEventService {
     @Override
     public List<TraceEvent> getTraceChain(Long partsId) {
         LambdaQueryWrapper<TraceEvent> w = new LambdaQueryWrapper<>();
-        w.eq(TraceEvent::getPartsId, partsId).isNull(TraceEvent::getPreviousEventId);
-        TraceEvent first = traceEventMapper.selectOne(w);
-        if (first == null) return new ArrayList<>();
+        w.eq(TraceEvent::getPartsId, partsId).isNull(TraceEvent::getPreviousEventId)
+                .orderByAsc(TraceEvent::getUnitId).orderByAsc(TraceEvent::getId);
+        List<TraceEvent> heads = traceEventMapper.selectList(w);
+        if (heads.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<TraceEvent> chains = new ArrayList<>();
+        for (TraceEvent head : heads) {
+            chains.addAll(buildChainFromHead(head));
+        }
+        return chains;
+    }
+
+    private List<TraceEvent> buildChainFromHead(TraceEvent head) {
         List<TraceEvent> chain = new ArrayList<>();
-        TraceEvent cur = first;
+        TraceEvent cur = head;
         while (cur != null) {
             chain.add(cur);
             cur = cur.getNextEventId() != null ? traceEventMapper.selectById(cur.getNextEventId()) : null;
@@ -181,7 +196,7 @@ public class TraceEventServiceImpl implements TraceEventService {
     }
 
     @Override
-    public List<TraceEvent> getEventList(Long partsId, String partsCode, String eventType) {
+    public List<TraceEvent> getEventList(Long partsId, Long unitId, String partsCode, String eventType) {
         LambdaQueryWrapper<TraceEvent> w = new LambdaQueryWrapper<>();
         if (partsId != null) {
             w.eq(TraceEvent::getPartsId, partsId);
@@ -191,6 +206,9 @@ public class TraceEventServiceImpl implements TraceEventService {
             PartsInfo pi = partsInfoMapper.selectOne(pw);
             if (pi != null) w.eq(TraceEvent::getPartsId, pi.getId());
             else return new ArrayList<>();
+        }
+        if (unitId != null) {
+            w.eq(TraceEvent::getUnitId, unitId);
         }
         if (StringUtils.hasText(eventType)) w.eq(TraceEvent::getEventType, eventType);
         w.orderByDesc(TraceEvent::getEventTime);
@@ -249,11 +267,16 @@ public class TraceEventServiceImpl implements TraceEventService {
         Map<String, Object> result = new HashMap<>();
         PartsInfo parts = partsInfoMapper.selectById(partsDid.getPartsId());
         LambdaQueryWrapper<TraceEvent> ew = new LambdaQueryWrapper<>();
-        ew.eq(TraceEvent::getPartsId, partsDid.getPartsId()).orderByAsc(TraceEvent::getEventTime);
+        applyDidScopeToEvents(ew, partsDid);
+        ew.orderByAsc(TraceEvent::getEventTime);
         LambdaQueryWrapper<VerifiableCredential> vw = new LambdaQueryWrapper<>();
-        vw.eq(VerifiableCredential::getPartsId, partsDid.getPartsId()).orderByDesc(VerifiableCredential::getCreateTime);
+        applyDidScopeToCredentials(vw, partsDid);
+        vw.orderByDesc(VerifiableCredential::getCreateTime);
         result.put("didInfo", partsDid);
         result.put("partsInfo", parts);
+        if (partsDid.getUnitId() != null) {
+            result.put("unitInfo", partsUnitMapper.selectById(partsDid.getUnitId()));
+        }
         result.put("events", traceEventMapper.selectList(ew));
         result.put("credentials", verifiableCredentialMapper.selectList(vw));
         result.put("verify", verifyTraceChainByDid(did));
@@ -268,13 +291,13 @@ public class TraceEventServiceImpl implements TraceEventService {
             issues.add("DID未激活");
         }
         LambdaQueryWrapper<TraceEvent> ew = new LambdaQueryWrapper<>();
-        ew.eq(TraceEvent::getPartsId, partsDid.getPartsId());
+        applyDidScopeToEvents(ew, partsDid);
         List<TraceEvent> events = traceEventMapper.selectList(ew);
         if (events.isEmpty()) {
             issues.add("缺少事件");
         }
         LambdaQueryWrapper<VerifiableCredential> vw = new LambdaQueryWrapper<>();
-        vw.eq(VerifiableCredential::getPartsId, partsDid.getPartsId());
+        applyDidScopeToCredentials(vw, partsDid);
         List<VerifiableCredential> vcs = verifiableCredentialMapper.selectList(vw);
         if (vcs.isEmpty()) {
             issues.add("缺少VC");
@@ -282,6 +305,7 @@ public class TraceEventServiceImpl implements TraceEventService {
         Map<String, Object> verify = new HashMap<>();
         verify.put("did", did);
         verify.put("partsId", partsDid.getPartsId());
+        verify.put("unitId", partsDid.getUnitId());
         verify.put("passed", issues.isEmpty());
         verify.put("issues", issues);
         verify.put("eventCount", events.size());
@@ -356,10 +380,34 @@ public class TraceEventServiceImpl implements TraceEventService {
         return partsDid;
     }
 
-    private void ensurePartsDidActivated(Long partsId) {
-        LambdaQueryWrapper<PartsDid> didWrapper = new LambdaQueryWrapper<>();
-        didWrapper.eq(PartsDid::getPartsId, partsId).last("LIMIT 1");
-        PartsDid partsDid = partsDidMapper.selectOne(didWrapper);
+    /** 按 DID 对应单件缩小事件查询范围，避免同 parts_id 下其他单件事件混入 */
+    private void applyDidScopeToEvents(LambdaQueryWrapper<TraceEvent> w, PartsDid partsDid) {
+        if (partsDid.getUnitId() != null) {
+            w.eq(TraceEvent::getUnitId, partsDid.getUnitId());
+            return;
+        }
+        if (StringUtils.hasText(partsDid.getDid())) {
+            w.eq(TraceEvent::getPartsDid, partsDid.getDid());
+            return;
+        }
+        w.eq(TraceEvent::getPartsId, partsDid.getPartsId());
+    }
+
+    /** 按 DID 对应单件缩小 VC 查询范围 */
+    private void applyDidScopeToCredentials(LambdaQueryWrapper<VerifiableCredential> w, PartsDid partsDid) {
+        if (partsDid.getUnitId() != null) {
+            w.eq(VerifiableCredential::getUnitId, partsDid.getUnitId());
+            return;
+        }
+        if (StringUtils.hasText(partsDid.getDid())) {
+            w.eq(VerifiableCredential::getSubjectDid, partsDid.getDid());
+            return;
+        }
+        w.eq(VerifiableCredential::getPartsId, partsDid.getPartsId());
+    }
+
+    private void ensurePartsDidActivated(Long partsId, Long unitId) {
+        PartsDid partsDid = resolvePartsDid(partsId, unitId);
         if (partsDid == null) {
             throw new BusinessException("零部件未生成DID");
         }
@@ -384,7 +432,13 @@ public class TraceEventServiceImpl implements TraceEventService {
         String eventRaw = String.valueOf(event.getPartsId()) + "|" + event.getEventType() + "|" + event.getEventTime() + "|" + attachmentHash;
         String eventHash = didUtil.sha256Hex(eventRaw);
         ObjectStorageAdapter.StoreObjectResult obj = objectStorageAdapter.store("trace_event", event.getId(), eventRaw);
-        ChainStorageAdapter.StoreChainResult chain = chainStorageAdapter.storeHash("trace_event", event.getId(), eventHash);
+        ChainStorageAdapter.StoreChainResult chain = chainStorageAdapter.storeAnchor(ChainAnchorRequest.builder()
+                .businessType("trace_event")
+                .businessId(event.getId())
+                .dataHash(eventHash)
+                .objectCid(obj.getCid())
+                .partsDid(event.getPartsDid())
+                .build());
         event.setEventHash(eventHash);
         event.setAttachmentCid(obj.getCid());
         event.setEventData("{\"eventHash\":\"" + eventHash + "\",\"attachmentHash\":\"" + attachmentHash + "\",\"attachmentCid\":\"" + obj.getCid() + "\"}");
@@ -393,10 +447,10 @@ public class TraceEventServiceImpl implements TraceEventService {
         traceEventMapper.updateById(event);
     }
 
-    private TraceEvent buildBase(String code, Long partsId, String type, String name,
+    private TraceEvent buildBase(String code, Long partsId, Long unitId, String type, String name,
             java.util.Date time, String loc, Long opId, String opName, String org, String evidenceUrls, String remark) {
         TraceEvent e = new TraceEvent();
-        e.setEventCode(code); e.setPartsId(partsId); e.setEventType(type); e.setEventName(name);
+        e.setEventCode(code); e.setPartsId(partsId); e.setUnitId(unitId); e.setEventType(type); e.setEventName(name);
         e.setEventTime(time); e.setEventLocation(loc); e.setOperatorId(opId); e.setOperatorName(opName);
         e.setOrganization(org); e.setEvidenceUrls(evidenceUrls); e.setStatus(1); e.setRemark(remark);
         e.setChainStatus(0); e.setRetryCount(0); e.setAbnormalMark(0); e.setAuditStatus(0);
@@ -404,18 +458,31 @@ public class TraceEventServiceImpl implements TraceEventService {
         if (p != null) {
             e.setBatchNumber(p.getBatchNumber());
         }
-        LambdaQueryWrapper<PartsDid> dw = new LambdaQueryWrapper<>();
-        dw.eq(PartsDid::getPartsId, partsId).last("LIMIT 1");
-        PartsDid pd = partsDidMapper.selectOne(dw);
+        PartsDid pd = resolvePartsDid(partsId, unitId);
         if (pd != null) {
             e.setPartsDid(pd.getDid());
         }
         return e;
     }
 
-    private TraceEvent getLastEvent(Long partsId) {
+    private PartsDid resolvePartsDid(Long partsId, Long unitId) {
+        LambdaQueryWrapper<PartsDid> dw = new LambdaQueryWrapper<>();
+        if (unitId != null) {
+            dw.eq(PartsDid::getUnitId, unitId);
+        } else {
+            dw.eq(PartsDid::getPartsId, partsId);
+        }
+        dw.orderByDesc(PartsDid::getId).last("LIMIT 1");
+        return partsDidMapper.selectOne(dw);
+    }
+
+    private TraceEvent getLastEvent(Long partsId, Long unitId) {
         LambdaQueryWrapper<TraceEvent> w = new LambdaQueryWrapper<>();
-        w.eq(TraceEvent::getPartsId, partsId).isNull(TraceEvent::getNextEventId).orderByDesc(TraceEvent::getEventTime).last("LIMIT 1");
+        w.eq(TraceEvent::getPartsId, partsId);
+        if (unitId != null) {
+            w.eq(TraceEvent::getUnitId, unitId);
+        }
+        w.isNull(TraceEvent::getNextEventId).orderByDesc(TraceEvent::getEventTime).last("LIMIT 1");
         return traceEventMapper.selectOne(w);
     }
 

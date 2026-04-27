@@ -5,11 +5,13 @@ import com.kewei.parts.module.parts.entity.ObjectStorageRecord;
 import com.kewei.parts.module.parts.mapper.ObjectStorageRecordMapper;
 import com.kewei.parts.utils.DidUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
 @Component
+@ConditionalOnProperty(prefix = "parts.trace.storage", name = "object-mode", havingValue = "db", matchIfMissing = true)
 public class DbObjectStorageAdapter implements ObjectStorageAdapter {
 
     @Autowired
