@@ -1,0 +1,97 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: parts-trace-backend
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${KEWEI_DBSERVER:localhost}:${KEWEI_DBPORT:3306}/parts_trace?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${KEWEI_DBUSER:root}
+    password: ${KEWEI_DBPWD:root}
+    druid:
+      initial-size: 2
+      min-idle: 1
+      max-active: 5
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+# MyBatis-Plus閰嶇疆
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.kewei.parts
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 鏃ュ織閰嶇疆
+logging:
+  level:
+    root: INFO
+    com.kewei.parts: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/parts-trace.log
+
+# Swagger/SpringDoc閰嶇疆
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+# Actuator閰嶇疆
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# IPFS閰嶇疆
+ipfs:
+  host: ${IPFS_HOST:127.0.0.1}
+  port: ${IPFS_PORT:5001}
+  gateway: http://${IPFS_HOST:127.0.0.1}:8080
+
+# JWT閰嶇疆
+jwt:
+  secret: ${JWT_SECRET:parts-trace-secret-key-2024}
+  expiration: 86400000
+  refresh-expiration: 604800000
+  header: Authorization
+  prefix: "Bearer "
+
+# DID閰嶇疆
+did:
+  method: chainmaker
+  chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
+
+# 闀垮畨閾鹃厤缃?
+chainmaker:
+  chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
+  org-id: ${CHAINMAKER_ORG_ID:wx-org1.chainmaker.org}
+  config-path: classpath:chainmaker/sdk_config.yml
+

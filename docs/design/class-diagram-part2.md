@@ -1,0 +1,771 @@
+# 零部件溯源系统 - 流程异常检测与追溯查询模块类图
+
+## 4. 流程异常检测模块类图
+
+### 4.1 核心实体类
+
+```java
+/**
+ * 业务规则实体类
+ */
+@Entity
+@Table(name = "business_rule")
+public class BusinessRule {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String ruleCode;
+    private String ruleName;
+    private String ruleType;  // time, process, quality
+    private String ruleCategory;
+    private String description;
+    private String ruleExpression;
+    private String severity;  // low, medium, high, critical
+    private Integer enabled;
+    private Integer priority;
+    private String applicablePartsCategory;
+    private String notificationConfig;
+    private Long creatorId;
+    
+    @OneToOne(mappedBy = "rule")
+    private TimeRule timeRule;
+    
+    @OneToOne(mappedBy = "rule")
+    private ProcessRule processRule;
+    
+    @OneToOne(mappedBy = "rule")
+    private QualityRule qualityRule;
+    
+    @OneToOne(mappedBy = "rule")
+    private SmartContract smartContract;
+    
+    @OneToMany(mappedBy = "rule")
+    private List<AnomalyEvent> anomalyEvents;
+}
+
+/**
+ * 时效规则实体类
+ */
+@Entity
+@Table(name = "time_rule")
+public class TimeRule {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @OneToOne
+    @JoinColumn(name = "rule_id")
+    private BusinessRule rule;
+    
+    private String processStage;  // production, quality, logistics
+    private Integer maxDuration;  // 小时
+    private Integer warningDuration;  // 小时
+    private String startEventType;
+    private String endEventType;
+    private Integer workingDaysOnly;
+}
+
+/**
+ * 流程规则实体类
+ */
+@Entity
+@Table(name = "process_rule")
+public class ProcessRule {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @OneToOne
+    @JoinColumn(name = "rule_id")
+    private BusinessRule rule;
+    
+    private String requiredEvents;  // JSON数组
+    private String eventSequence;  // JSON数组
+    private String forbiddenEvents;  // JSON数组
+    private String conditionalEvents;  // JSON格式
+    private Integer parallelAllowed;
+}
+
+/**
+ * 质量规则实体类
+ */
+@Entity
+@Table(name = "quality_rule")
+public class QualityRule {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @OneToOne
+    @JoinColumn(name = "rule_id")
+    private BusinessRule rule;
+    
+    private String parameterName;
+    private String parameterType;  // numeric, string, boolean
+    private BigDecimal minValue;
+    private BigDecimal maxValue;
+    private String allowedValues;  // JSON数组
+    private String comparisonOperator;  // eq, ne, gt, lt, gte, lte, in, not_in
+    private String thresholdValue;
+    private String unit;
+}
+
+/**
+ * 智能合约实体类
+ */
+@Entity
+@Table(name = "smart_contract")
+public class SmartContract {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String contractName;
+    private String contractVersion;
+    
+    @OneToOne
+    @JoinColumn(name = "rule_id")
+    private BusinessRule rule;
+    
+    private String contractCode;
+    private String contractLanguage;  // solidity, go, rust
+    private String chainType;
+    private String contractAddress;
+    private String deployTxId;
+    private Integer deployStatus;  // 0-未部署, 1-部署中, 2-已部署, 3-部署失败
+    private Date deployTime;
+    private String abi;
+    private String bytecode;
+    private String description;
+    private Long creatorId;
+}
+
+/**
+ * 异常事件实体类
+ */
+@Entity
+@Table(name = "anomaly_event")
+public class AnomalyEvent {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String anomalyCode;
+    
+    @ManyToOne
+    @JoinColumn(name = "parts_id")
+    private PartsInfo parts;
+    
+    @ManyToOne
+    @JoinColumn(name = "trace_event_id")
+    private TraceEvent traceEvent;
+    
+    @ManyToOne
+    @JoinColumn(name = "rule_id")
+    private BusinessRule rule;
+    
+    private String anomalyType;  // time_exceed, process_violation, quality_issue
+    private String severity;  // low, medium, high, critical
+    private String title;
+    private String description;
+    private String anomalyData;
+    private Date detectedTime;
+    private Long responsibleUserId;
+    private String responsibleUserName;
+    private Integer status;  // 0-待处理, 1-处理中, 2-已处理, 3-已忽略
+    private Integer priority;
+    private Integer notificationSent;
+    private Date notificationTime;
+    
+    @OneToMany(mappedBy = "anomaly")
+    private List<AnomalyHandling> handlingRecords;
+}
+
+/**
+ * 异常处理记录实体类
+ */
+@Entity
+@Table(name = "anomaly_handling")
+public class AnomalyHandling {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @ManyToOne
+    @JoinColumn(name = "anomaly_id")
+    private AnomalyEvent anomaly;
+    
+    private Long handlerId;
+    private String handlerName;
+    private String handlingAction;  // investigate, resolve, ignore, escalate
+    private String handlingResult;
+    private String rootCause;
+    private String correctiveAction;
+    private String preventiveAction;
+    private String evidenceUrls;
+    private String reissuedVcIds;
+    private Date handlingTime;
+    private Integer timeSpent;  // 分钟
+    private String remark;
+}
+```
+
+### 4.2 服务层接口
+
+```java
+/**
+ * 业务规则服务接口
+ */
+public interface BusinessRuleService {
+    // 创建规则
+    BusinessRule createRule(BusinessRuleDTO ruleDTO);
+    
+    // 更新规则
+    void updateRule(Long ruleId, BusinessRuleDTO ruleDTO);
+    
+    // 删除规则
+    void deleteRule(Long ruleId);
+    
+    // 启用/禁用规则
+    void toggleRuleStatus(Long ruleId, Integer enabled);
+    
+    // 获取所有规则
+    List<BusinessRule> getAllRules();
+    
+    // 根据类型获取规则
+    List<BusinessRule> getRulesByType(String ruleType);
+    
+    // 获取适用于指定零部件的规则
+    List<BusinessRule> getApplicableRules(Long partsId);
+}
+
+/**
+ * 智能合约服务接口
+ */
+public interface SmartContractService {
+    // 编写合约代码
+    SmartContract writeContract(ContractWriteDTO writeDTO);
+    
+    // 部署合约
+    void deployContract(Long contractId);
+    
+    // 调用合约方法
+    Object invokeContract(String contractAddress, String method, Object... params);
+    
+    // 获取合约状态
+    ContractStatusVO getContractStatus(Long contractId);
+    
+    // 更新合约
+    void upgradeContract(Long contractId, String newCode);
+}
+
+/**
+ * 异常检测服务接口
+ */
+public interface AnomalyDetectionService {
+    // 检测时效异常
+    List<AnomalyEvent> detectTimeAnomaly(Long partsId);
+    
+    // 检测流程异常
+    List<AnomalyEvent> detectProcessAnomaly(Long partsId);
+    
+    // 检测质量异常
+    List<AnomalyEvent> detectQualityAnomaly(Long partsId);
+    
+    // 执行规则检测
+    AnomalyEvent executeRuleCheck(Long ruleId, Long partsId);
+    
+    // 批量检测
+    List<AnomalyEvent> batchDetect(List<Long> partsIds);
+    
+    // 实时监控
+    void startRealTimeMonitoring(Long partsId);
+}
+
+/**
+ * 异常处理服务接口
+ */
+public interface AnomalyHandlingService {
+    // 处理异常
+    void handleAnomaly(Long anomalyId, AnomalyHandlingDTO handlingDTO);
+    
+    // 调查异常
+    void investigateAnomaly(Long anomalyId, String investigationResult);
+    
+    // 解决异常
+    void resolveAnomaly(Long anomalyId, String resolution);
+    
+    // 忽略异常
+    void ignoreAnomaly(Long anomalyId, String reason);
+    
+    // 升级异常
+    void escalateAnomaly(Long anomalyId, Long targetUserId);
+    
+    // 获取异常处理历史
+    List<AnomalyHandling> getHandlingHistory(Long anomalyId);
+    
+    // 发送异常预警
+    void sendAnomalyAlert(Long anomalyId);
+}
+```
+
+### 4.3 规则引擎设计
+
+```java
+/**
+ * 规则引擎接口
+ */
+public interface RuleEngine {
+    // 执行规则
+    RuleExecutionResult execute(BusinessRule rule, Object context);
+    
+    // 验证规则表达式
+    boolean validateExpression(String expression);
+    
+    // 编译规则
+    CompiledRule compile(BusinessRule rule);
+}
+
+/**
+ * 规则执行结果
+ */
+public class RuleExecutionResult {
+    private boolean passed;
+    private String message;
+    private Map<String, Object> details;
+    private AnomalyEvent anomaly;
+}
+
+/**
+ * 时效规则检查器
+ */
+public class TimeRuleChecker implements RuleChecker {
+    @Override
+    public RuleExecutionResult check(BusinessRule rule, PartsInfo parts) {
+        TimeRule timeRule = rule.getTimeRule();
+        // 计算时间差
+        long duration = calculateDuration(parts, timeRule);
+        
+        if (duration > timeRule.getMaxDuration()) {
+            return RuleExecutionResult.failed("超时异常");
+        }
+        return RuleExecutionResult.passed();
+    }
+}
+
+/**
+ * 流程规则检查器
+ */
+public class ProcessRuleChecker implements RuleChecker {
+    @Override
+    public RuleExecutionResult check(BusinessRule rule, PartsInfo parts) {
+        ProcessRule processRule = rule.getProcessRule();
+        List<TraceEvent> events = parts.getTraceEvents();
+        
+        // 检查必需事件
+        if (!hasRequiredEvents(events, processRule.getRequiredEvents())) {
+            return RuleExecutionResult.failed("缺少必需事件");
+        }
+        
+        // 检查事件顺序
+        if (!isCorrectSequence(events, processRule.getEventSequence())) {
+            return RuleExecutionResult.failed("事件顺序错误");
+        }
+        
+        return RuleExecutionResult.passed();
+    }
+}
+
+/**
+ * 质量规则检查器
+ */
+public class QualityRuleChecker implements RuleChecker {
+    @Override
+    public RuleExecutionResult check(BusinessRule rule, PartsInfo parts) {
+        QualityRule qualityRule = rule.getQualityRule();
+        
+        // 获取质量参数值
+        Object paramValue = getParameterValue(parts, qualityRule.getParameterName());
+        
+        // 执行比较
+        if (!compareValue(paramValue, qualityRule)) {
+            return RuleExecutionResult.failed("质量参数不符合标准");
+        }
+        
+        return RuleExecutionResult.passed();
+    }
+}
+```
+
+## 5. 追溯查询模块类图
+
+### 5.1 核心实体类
+
+```java
+/**
+ * 查询日志实体类
+ */
+@Entity
+@Table(name = "query_log")
+public class QueryLog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String queryType;  // parts_name, batch_number, trace_detail
+    private String queryKeyword;
+    
+    @ManyToOne
+    @JoinColumn(name = "parts_id")
+    private PartsInfo parts;
+    
+    private String queryParams;
+    private Integer queryResultCount;
+    private Date queryTime;
+    private Integer queryDuration;  // 毫秒
+    private Long userId;
+    private String userIp;
+    private String userAgent;
+    private Integer status;
+    private String errorMsg;
+}
+
+/**
+ * 溯源报告实体类
+ */
+@Entity
+@Table(name = "trace_report")
+public class TraceReport {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String reportCode;
+    
+    @ManyToOne
+    @JoinColumn(name = "parts_id")
+    private PartsInfo parts;
+    
+    private String reportType;  // comprehensive, production, quality, logistics
+    private String reportTitle;
+    private String reportFormat;  // pdf, html, json
+    private String reportContent;
+    private String reportUrl;
+    private Long fileSize;
+    private String includeEvents;  // JSON数组
+    private String includeCredentials;  // JSON数组
+    private Date generationTime;
+    private Long generatorId;
+    private String generatorName;
+    private Integer downloadCount;
+    private Date lastDownloadTime;
+    private Integer status;
+    private String remark;
+}
+
+/**
+ * 真伪验证记录实体类
+ */
+@Entity
+@Table(name = "verification_record")
+public class VerificationRecord {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String verificationCode;
+    private String batchNumber;
+    
+    @ManyToOne
+    @JoinColumn(name = "parts_id")
+    private PartsInfo parts;
+    
+    private String verificationType;  // batch, vc, did
+    private String verificationMethod;  // qrcode, manual, api
+    private String verificationResult;  // genuine, counterfeit, unknown
+    private BigDecimal confidenceScore;  // 0-100
+    private String verificationData;
+    private Integer blockchainVerified;
+    private Date verificationTime;
+    private Long verifierId;
+    private String verifierIp;
+    private String verifierLocation;
+    private String deviceInfo;
+    private String remark;
+}
+
+/**
+ * 假冒产品上报实体类
+ */
+@Entity
+@Table(name = "counterfeit_report")
+public class CounterfeitReport {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    private String reportCode;
+    private String batchNumber;
+    private String partsName;
+    
+    @ManyToOne
+    @JoinColumn(name = "suspected_parts_id")
+    private PartsInfo suspectedParts;
+    
+    private Long reporterId;
+    private String reporterName;
+    private String reporterPhone;
+    private String reporterEmail;
+    private String discoveryLocation;
+    private Date discoveryTime;
+    private String purchaseChannel;
+    private BigDecimal purchasePrice;
+    private String evidenceDescription;
+    private String evidenceImages;  // JSON数组
+    private String counterfeitFeatures;
+    private Integer reportStatus;  // 0-待审核, 1-审核中, 2-已确认, 3-已驳回, 4-已处理
+    private String reviewResult;  // confirmed, rejected, pending
+    private Long reviewerId;
+    private String reviewerName;
+    private Date reviewTime;
+    private String reviewComment;
+    private String handlingResult;
+    private Integer notificationSent;
+    private Integer priority;
+}
+
+/**
+ * 溯源路径缓存实体类
+ */
+@Entity
+@Table(name = "trace_path_cache")
+public class TracePathCache {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @OneToOne
+    @JoinColumn(name = "parts_id")
+    private PartsInfo parts;
+    
+    private String pathData;  // JSON格式，包含完整溯源链
+    private Integer eventCount;
+    private Integer credentialCount;
+    private Date lastEventTime;
+    private Integer cacheVersion;
+    private Integer isValid;
+}
+```
+
+### 5.2 服务层接口
+
+```java
+/**
+ * 溯源查询服务接口
+ */
+public interface TraceQueryService {
+    // 按零部件名称查询
+    List<PartsInfo> queryByPartsName(String partsName);
+    
+    // 按批次号查询
+    PartsInfo queryByBatchNumber(String batchNumber);
+    
+    // 查看溯源详情
+    TraceDetailVO getTraceDetail(Long partsId);
+    
+    // 查看溯源路径图
+    TracePathVO getTracePath(Long partsId);
+    
+    // 查看全生命周期事件
+    List<TraceEvent> getLifecycleEvents(Long partsId);
+    
+    // 高级搜索
+    Page<PartsInfo> advancedSearch(TraceSearchDTO searchDTO);
+}
+
+/**
+ * 溯源报告服务接口
+ */
+public interface TraceReportService {
+    // 生成溯源报告
+    TraceReport generateReport(Long partsId, String reportType);
+    
+    // 导出报告
+    byte[] exportReport(Long reportId, String format);
+    
+    // 下载报告
+    void downloadReport(Long reportId);
+    
+    // 获取报告列表
+    Page<TraceReport> getReportList(ReportQueryDTO queryDTO);
+    
+    // 删除报告
+    void deleteReport(Long reportId);
+}
+
+/**
+ * 真伪验证服务接口
+ */
+public interface VerificationService {
+    // 输入批次号验证
+    VerificationRecord verifyByBatchNumber(String batchNumber);
+    
+    // 获取验证凭证
+    VerifiableCredential getVerificationCredential(String batchNumber);
+    
+    // 区块链验证
+    boolean verifyOnBlockchain(String batchNumber);
+    
+    // 扫码验证
+    VerificationRecord verifyByQRCode(String qrCode);
+    
+    // 获取验证历史
+    List<VerificationRecord> getVerificationHistory(Long partsId);
+}
+
+/**
+ * 假冒产品上报服务接口
+ */
+public interface CounterfeitReportService {
+    // 上报假冒产品
+    CounterfeitReport reportCounterfeit(CounterfeitReportDTO reportDTO);
+    
+    // 审核上报
+    void reviewReport(Long reportId, ReviewDTO reviewDTO);
+    
+    // 处理上报
+    void handleReport(Long reportId, HandlingDTO handlingDTO);
+    
+    // 获取上报列表
+    Page<CounterfeitReport> getReportList(CounterfeitQueryDTO queryDTO);
+    
+    // 通知相关方
+    void notifyStakeholders(Long reportId);
+}
+
+/**
+ * 溯源路径缓存服务接口
+ */
+public interface TracePathCacheService {
+    // 构建缓存
+    void buildCache(Long partsId);
+    
+    // 更新缓存
+    void updateCache(Long partsId);
+    
+    // 失效缓存
+    void invalidateCache(Long partsId);
+    
+    // 获取缓存
+    TracePathCache getCache(Long partsId);
+    
+    // 批量构建缓存
+    void batchBuildCache(List<Long> partsIds);
+}
+```
+
+### 5.3 查询优化设计
+
+```java
+/**
+ * 查询优化器
+ */
+public class QueryOptimizer {
+    // 使用缓存
+    public TraceDetailVO getTraceDetailWithCache(Long partsId) {
+        TracePathCache cache = cacheService.getCache(partsId);
+        if (cache != null && cache.getIsValid() == 1) {
+            return buildFromCache(cache);
+        }
+        return buildFromDatabase(partsId);
+    }
+    
+    // 分页查询优化
+    public Page<PartsInfo> optimizedPageQuery(TraceSearchDTO searchDTO) {
+        // 使用索引
+        // 避免深分页
+        // 使用游标分页
+    }
+}
+
+/**
+ * 报告生成器
+ */
+public class ReportGenerator {
+    // 异步生成报告
+    @Async
+    public CompletableFuture<TraceReport> generateAsync(Long partsId, String reportType) {
+        // 收集数据
+        // 生成报告
+        // 保存文件
+        return CompletableFuture.completedFuture(report);
+    }
+    
+    // 模板渲染
+    public String renderTemplate(String template, Map<String, Object> data) {
+        // 使用模板引擎渲染
+    }
+}
+```
+
+## 6. 工具类设计
+
+```java
+/**
+ * JWT工具类
+ */
+public class JwtUtil {
+    public String generateToken(Long userId, String username, String userType);
+    public boolean validateToken(String token);
+    public DecodedJWT parseToken(String token);
+    public Long getUserIdFromToken(String token);
+}
+
+/**
+ * RSA工具类
+ */
+public class RsaUtil {
+    public static Map<String, String> generateKeyPair() throws Exception;
+    public static String encryptByPublicKey(String data, String publicKey);
+    public static String decryptByPrivateKey(String data, String privateKey);
+    public static String sign(String data, String privateKey);
+    public static boolean verify(String data, String sign, String publicKey);
+}
+
+/**
+ * DID工具类
+ */
+public class DidUtil {
+    public String generateDid();
+    public String generateDidDocument(String did, String publicKey, Long userId, String username);
+    public JSONObject parseDidDocument(String didDocument);
+    public boolean validateDidFormat(String did);
+}
+
+/**
+ * 区块链工具类
+ */
+public class ChainMakerUtil {
+    public String invokeContract(String contractName, String method, Map<String, String> params);
+    public String queryContract(String contractName, String method, Map<String, String> params);
+    public TransactionResponse getTransactionByTxId(String txId);
+}
+```
+
+## 7. 总结
+
+本类图设计涵盖了零部件溯源系统的五大功能模块：
+
+1. **用户管理模块**: 用户、角色、权限、DID、RSA密钥管理
+2. **零部件管理模块**: 零部件信息、分类、规格、上链记录管理
+3. **零部件溯源模块**: 溯源事件、可验证凭证、生产/质检/物流详情
+4. **流程异常检测模块**: 业务规则、智能合约、异常检测与处理
+5. **追溯查询模块**: 溯源查询、报告生成、真伪验证、假冒上报
+
+设计遵循以下原则：
+- **单一职责原则**: 每个类只负责一个功能
+- **开闭原则**: 对扩展开放，对修改关闭
+- **依赖倒置原则**: 依赖抽象而非具体实现
+- **接口隔离原则**: 接口设计精简，避免臃肿
+- **组合优于继承**: 使用组合关系而非继承关系
