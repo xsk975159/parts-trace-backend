@@ -1,4 +1,4 @@
-# 溯源系统分步开发指南（数据库模拟链/IPFS版本）
+﻿# 溯源系统分步开发指南（数据库模拟链/IPFS版本）
 
 > 适用项目：`parts-trace-backend` + `parts-trace-frontend`
 > 
