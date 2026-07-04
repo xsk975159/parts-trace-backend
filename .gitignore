@@ -1,0 +1,16 @@
+# Build output
+target/
+*.class
+
+# Logs and crash dumps
+logs/
+*.log
+hs_err_pid*.log
+
+# IDE/editor files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
