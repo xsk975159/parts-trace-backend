@@ -138,14 +138,14 @@ public class PartsDidController {
     @Operation(summary = "冻结DID")
     @PostMapping("/did/{didId}/freeze")
     public Result<PartsDid> freezeDid(HttpServletRequest request, @PathVariable Long didId, @RequestParam(required = false) String reason) {
-        requireAnyRole(request, "admin", "viewer");
+        requireAnyRole(request, "admin", "quality");
         return Result.success(partsService.freezeDid(didId, reason));
     }
 
     @Operation(summary = "解冻DID")
     @PostMapping("/did/{didId}/unfreeze")
     public Result<PartsDid> unfreezeDid(HttpServletRequest request, @PathVariable Long didId) {
-        requireAnyRole(request, "admin", "viewer");
+        requireAnyRole(request, "admin", "quality");
         return Result.success(partsService.unfreezeDid(didId));
     }
 

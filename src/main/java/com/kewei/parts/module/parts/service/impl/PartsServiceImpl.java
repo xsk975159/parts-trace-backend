@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.kewei.parts.common.BusinessException;
 import com.kewei.parts.infrastructure.storage.ChainAnchorRequest;
+import com.kewei.parts.infrastructure.storage.ChainRouter;
 import com.kewei.parts.infrastructure.storage.ChainStorageAdapter;
 import com.kewei.parts.infrastructure.storage.ObjectStorageAdapter;
 import com.kewei.parts.module.parts.dto.PartsCreateDTO;
@@ -47,6 +48,12 @@ import java.util.stream.Collectors;
  */
 @Service
 public class PartsServiceImpl implements PartsService {
+    @Autowired private com.kewei.parts.module.identity.mapper.SysUserDidMapper userDidMapper;
+    @Autowired private com.kewei.parts.security.CurrentActor actor;
+    @Autowired private com.kewei.parts.module.parts.service.DidDocumentVerifier documentVerifier;
+    @Autowired private com.kewei.parts.infrastructure.storage.AuditRecorder audits;
+    @Autowired private com.kewei.parts.module.anomaly.service.QualitySafetyService safety;
+    @Autowired private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
     private static final Logger log = LoggerFactory.getLogger(PartsServiceImpl.class);
 
     @Autowired
@@ -70,6 +77,9 @@ public class PartsServiceImpl implements PartsService {
     @Autowired
     private ChainStorageAdapter chainStorageAdapter;
 
+    @Autowired
+    private ChainRouter chainRouter;
+
     @Value("${did.chain-id:chain1}")
     private String didNetwork;
 
@@ -78,6 +88,8 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsInfo createParts(PartsCreateDTO createDTO, Long creatorId) {
+        actor.requireRoles("manufacturer");
+        creatorId=actor.id();
         // 检查零部件编码是否已存"
         LambdaQueryWrapper<PartsInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PartsInfo::getPartsCode, createDTO.getPartsCode());
@@ -114,6 +126,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateParts(Long partsId, PartsUpdateDTO updateDTO) {
+        requireOwner(partsId);
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -250,6 +263,9 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteParts(Long partsId) {
+        requireOwner(partsId);
+        if(partsDidMapper.selectCount(new LambdaQueryWrapper<PartsDid>().eq(PartsDid::getPartsId,partsId))>0)
+            throw new BusinessException("已生成DID的零部件不能删除，请使用归档保留追溯记录");
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -264,6 +280,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void archiveParts(Long partsId) {
+        requireOwner(partsId);
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -279,6 +296,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid generatePartsDid(Long partsId) {
+        requireOwner(partsId);
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -323,6 +341,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updatePartsStatus(Long partsId, Integer status) {
+        requireOwner(partsId);
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -348,7 +367,7 @@ public class PartsServiceImpl implements PartsService {
         try {
             task.setStatus(1);
             task.setProgress(30);
-            PartsDid did = generatePartsDid(partsId);
+            PartsDid did = transactionTemplate.execute(status -> generatePartsDid(partsId));
             task.setStatus(2);
             task.setProgress(100);
             task.setResultDid(did.getDid());
@@ -447,6 +466,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid bindDid(Long didId, PartsDidBindDTO bindDTO) {
+        actor.requireRoles("manufacturer");
         PartsDid did = partsDidMapper.selectById(didId);
         if (did == null) {
             throw new BusinessException("DID不存在");
@@ -454,6 +474,7 @@ public class PartsServiceImpl implements PartsService {
         if (did.getDidStatus() == null || did.getDidStatus() != 1) {
             throw new BusinessException("仅激活状态的DID可绑定");
         }
+        requireOwner(did.getPartsId());
         did.setBindStatus(1);
         did.setBindType(bindDTO.getBindType());
         did.setBindCode(bindDTO.getBindCode());
@@ -461,48 +482,61 @@ public class PartsServiceImpl implements PartsService {
         did.setUnboundTime(null);
         did.setRemark(bindDTO.getRemark());
         partsDidMapper.updateById(did);
+        audits.record("bindDid",did.getId(),did);
         return did;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid unbindDid(Long didId) {
+        actor.requireRoles("manufacturer");
         PartsDid did = partsDidMapper.selectById(didId);
         if (did == null) {
             throw new BusinessException("DID不存在");
         }
+        requireOwner(did.getPartsId());
         did.setBindStatus(0);
         did.setUnboundTime(new Date());
         did.setBindType(null);
         did.setBindCode(null);
         partsDidMapper.updateById(did);
+        audits.record("unbindDid",did.getId(),did);
         return did;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid freezeDid(Long didId, String reason) {
+        actor.requireRoles("quality");
         PartsDid did = partsDidMapper.selectById(didId);
         if (did == null) {
             throw new BusinessException("DID不存在");
         }
+        partsInfoMapper.lockById(did.getPartsId());
+        if(!Integer.valueOf(1).equals(did.getDidStatus()) && !Integer.valueOf(2).equals(did.getDidStatus())) throw new BusinessException("仅激活对象可以冻结");
         did.setDidStatus(2);
         if (StringUtils.hasText(reason)) {
             did.setRemark(reason);
         }
         partsDidMapper.updateById(did);
+        audits.record("freezeDid",did.getId(),did);
         return did;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid unfreezeDid(Long didId) {
+        actor.requireRoles("quality");
         PartsDid did = partsDidMapper.selectById(didId);
         if (did == null) {
             throw new BusinessException("DID不存在");
         }
+        partsInfoMapper.lockById(did.getPartsId());
+        if(!Integer.valueOf(2).equals(did.getDidStatus())) throw new BusinessException("仅被冻结对象可以解冻");
+        safety.assertCanUnfreeze(did.getPartsId());
         did.setDidStatus(1);
         partsDidMapper.updateById(did);
+        audits.record("unfreezeDid",did.getId(),did);
         return did;
     }
 
@@ -534,13 +568,17 @@ public class PartsServiceImpl implements PartsService {
         vo.setPartsId(entity.getPartsId());
         vo.setActivated(entity.getDidStatus() != null && entity.getDidStatus() == 1);
         vo.setBound(entity.getBindStatus() != null && entity.getBindStatus() == 1);
-        vo.setMessage("校验通过");
+        vo.setDocumentCheck(documentVerifier.verify(entity));
+        vo.setSimulated(chainStorageAdapter.isSimulated());
+        vo.setMessage(Boolean.TRUE.equals(vo.getDocumentCheck()) && Boolean.TRUE.equals(vo.getActivated()) && Boolean.TRUE.equals(vo.getBound())
+            ? (chainStorageAdapter.isSimulated()?"核验通过，存证来源为本地模拟账本":"核验通过") : "DID存在，但文档存证、激活状态或物理绑定尚未通过核验");
         return vo;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int initPartsUnits(Long partsId, Integer unitCount) {
+        requireOwner(partsId);
         PartsInfo partsInfo = partsInfoMapper.selectById(partsId);
         if (partsInfo == null) {
             throw new BusinessException("零部件不存在");
@@ -587,6 +625,7 @@ public class PartsServiceImpl implements PartsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PartsDid generateUnitDid(Long unitId) {
+        actor.requireRoles("manufacturer");
         PartsUnit unit;
         try {
             unit = partsUnitMapper.selectById(unitId);
@@ -603,10 +642,11 @@ public class PartsServiceImpl implements PartsService {
         if (partsInfo == null) {
             throw new BusinessException("单件所属零部件不存在");
         }
+        requireOwner(unit.getPartsId());
         LambdaQueryWrapper<PartsDid> existWrapper = new LambdaQueryWrapper<>();
         existWrapper.eq(PartsDid::getUnitId, unitId).last("LIMIT 1");
         PartsDid exist = partsDidMapper.selectOne(existWrapper);
-        if (exist != null && exist.getDidStatus() != null && exist.getDidStatus() != 3) {
+        if (exist != null) {
             throw new BusinessException("该单件已生成DID");
         }
 
@@ -614,7 +654,10 @@ public class PartsServiceImpl implements PartsService {
                 ? didUtil.sha256Hex(partsInfo.getManufacturer()).substring(0, 16)
                 : "unknown";
         String did = didUtil.generatePartDid(didNetwork, manufacturerDid, unit.getBatchNumber(), unit.getUnitCode());
-        String publicKey = UUID.randomUUID().toString();
+        com.kewei.parts.module.identity.entity.SysUserDid issuer=userDidMapper.selectOne(new LambdaQueryWrapper<com.kewei.parts.module.identity.entity.SysUserDid>()
+            .eq(com.kewei.parts.module.identity.entity.SysUserDid::getUserId,actor.id()).eq(com.kewei.parts.module.identity.entity.SysUserDid::getBindStatus,1));
+        if(issuer==null) throw new BusinessException("生产方须先绑定有效DID");
+        String publicKey = issuer.getPublicKey();
         String didDocument = didUtil.generateDidDocument(did, publicKey, unitId, unit.getUnitCode());
         ObjectStorageAdapter.StoreObjectResult objectResult =
                 objectStorageAdapter.store("did_document_unit", unitId, didDocument);
@@ -625,6 +668,7 @@ public class PartsServiceImpl implements PartsService {
                         .dataHash(objectResult.getContentHash())
                         .objectCid(objectResult.getCid())
                         .partsDid(did)
+                        .chainId(chainRouter.didChain())
                         .build());
 
         PartsDid partsDid = new PartsDid();
@@ -678,9 +722,11 @@ public class PartsServiceImpl implements PartsService {
                 return "未知";
         }
     }
+
+    private void requireOwner(Long partsId) {
+        actor.requireRoles("manufacturer");
+        PartsInfo part=partsInfoMapper.lockById(partsId);
+        if(part==null) throw new BusinessException("零部件不存在");
+        actor.requireSelfOrAdmin(part.getCreatorId());
+    }
 }
-
-
-
-
-

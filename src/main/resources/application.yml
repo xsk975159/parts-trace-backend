@@ -11,7 +11,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${KEWEI_DBSERVER:localhost}:${KEWEI_DBPORT:3306}/parts_trace?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${KEWEI_DBUSER:root}
-    password: ${KEWEI_DBPWD:root}
+    password: ${KEWEI_DBPWD:}
     druid:
       initial-size: 2
       min-idle: 1
@@ -23,6 +23,10 @@ spring:
       test-while-idle: true
       test-on-borrow: false
       test-on-return: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss
@@ -31,7 +35,7 @@ mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.kewei.parts
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
     map-underscore-to-camel-case: true
   global-config:
     db-config:
@@ -43,7 +47,7 @@ mybatis-plus:
 logging:
   level:
     root: INFO
-    com.kewei.parts: DEBUG
+    com.kewei.parts: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
   file:
@@ -78,7 +82,7 @@ ipfs:
 
 # JWT閰嶇疆
 jwt:
-  secret: ${JWT_SECRET:parts-trace-secret-key-2024}
+  secret: ${JWT_SECRET:}
   expiration: 86400000
   refresh-expiration: 604800000
   header: Authorization
@@ -89,18 +93,43 @@ did:
   method: chainmaker
   chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
 
-# ChainMaker（SDK 配置见 chainmaker/sdk_config.yml，可从 sdk_config.yml.example 复制）
-chainmaker:
-  chain-id: ${CHAINMAKER_CHAIN_ID:chain1}
-  org-id: ${CHAINMAKER_ORG_ID:wx-org1.chainmaker.org}
-  config-path: classpath:chainmaker/sdk_config.yml
-  # 锚点合约预留（5.1：事件/VC 哈希上链；实现 ChainMakerChainStorageAdapter 后使用）
-  anchor-contract: ${CHAINMAKER_ANCHOR_CONTRACT:}
-  wasm-contract-name: ${CHAINMAKER_WASM_CONTRACT:trace_anchor}
-  sdk:
-    # 打开后需有效 sdk_config.yml 与已部署的 Wasm 合约；默认 false 以免本地无链启动失败
-    invoke-enabled: ${CHAINMAKER_SDK_INVOKE_ENABLED:false}
-    invoke-timeout-ms: ${CHAINMAKER_INVOKE_TIMEOUT_MS:60000}
+# 每个逻辑链独立选择平台；db模式不初始化任何真实SDK。
+blockchain:
+  timeout-ms: ${BLOCKCHAIN_TIMEOUT_MS:60000}
+  relay-private-key: ${RELAY_PRIVATE_KEY:}
+  networks:
+    main-regulator:
+      platform: ${MAIN_CHAIN_PLATFORM:CHAINMAKER}
+      sdk-config: ${MAIN_CHAIN_CONFIG:${CHAINMAKER_MAIN_CONFIG:}}
+      expected-chain-id: ${MAIN_CHAIN_ID:}
+      contract-name: ${CHAINMAKER_CONTRACT_NAME:trace_anchor}
+      group: ${MAIN_CHAIN_GROUP:group0}
+      contract-address: ${MAIN_CHAIN_CONTRACT_ADDRESS:}
+      expected-account: ${MAIN_CHAIN_ACCOUNT:}
+    sub-production:
+      platform: ${PRODUCTION_CHAIN_PLATFORM:CHAINMAKER}
+      sdk-config: ${PRODUCTION_CHAIN_CONFIG:${CHAINMAKER_PRODUCTION_CONFIG:}}
+      expected-chain-id: ${PRODUCTION_CHAIN_ID:}
+      contract-name: ${CHAINMAKER_CONTRACT_NAME:trace_anchor}
+      group: ${PRODUCTION_CHAIN_GROUP:group0}
+      contract-address: ${PRODUCTION_CHAIN_CONTRACT_ADDRESS:}
+      expected-account: ${PRODUCTION_CHAIN_ACCOUNT:}
+    sub-quality:
+      platform: ${QUALITY_CHAIN_PLATFORM:CHAINMAKER}
+      sdk-config: ${QUALITY_CHAIN_CONFIG:${CHAINMAKER_QUALITY_CONFIG:}}
+      expected-chain-id: ${QUALITY_CHAIN_ID:}
+      contract-name: ${CHAINMAKER_CONTRACT_NAME:trace_anchor}
+      group: ${QUALITY_CHAIN_GROUP:group0}
+      contract-address: ${QUALITY_CHAIN_CONTRACT_ADDRESS:}
+      expected-account: ${QUALITY_CHAIN_ACCOUNT:}
+    sub-logistics:
+      platform: ${LOGISTICS_CHAIN_PLATFORM:FISCO_BCOS}
+      sdk-config: ${LOGISTICS_CHAIN_CONFIG:${FISCO_LOGISTICS_CONFIG:}}
+      expected-chain-id: ${LOGISTICS_CHAIN_ID:${FISCO_LOGISTICS_CHAIN_ID:}}
+      contract-name: ${CHAINMAKER_CONTRACT_NAME:trace_anchor}
+      group: ${LOGISTICS_CHAIN_GROUP:${FISCO_LOGISTICS_GROUP:group0}}
+      contract-address: ${LOGISTICS_CHAIN_CONTRACT_ADDRESS:${FISCO_LOGISTICS_CONTRACT_ADDRESS:}}
+      expected-account: ${LOGISTICS_CHAIN_ACCOUNT:${FISCO_LOGISTICS_ACCOUNT:}}
 
 # Trace storage adapters
 parts:
@@ -109,3 +138,6 @@ parts:
       chain-mode: ${PARTS_TRACE_CHAIN_MODE:db}
       object-mode: ${PARTS_TRACE_OBJECT_MODE:db}
 
+
+security:
+  key-encryption-key: ${KEY_ENCRYPTION_KEY:}

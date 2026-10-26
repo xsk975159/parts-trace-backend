@@ -14,6 +14,8 @@ public class DidValidateVO {
     private Boolean activated;
 
     private Boolean bound;
+    private Boolean documentCheck;
+    private Boolean simulated;
 
     private Long partsId;
 

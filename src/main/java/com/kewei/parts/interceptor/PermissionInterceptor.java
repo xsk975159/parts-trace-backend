@@ -15,6 +15,9 @@ import javax.servlet.http.HttpServletResponse;
 @Component
 public class PermissionInterceptor implements HandlerInterceptor {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.kewei.parts.security.CurrentActor actor;
+
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         // 跨域预检请求直接放行
@@ -22,25 +25,25 @@ public class PermissionInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        String userType = (String) request.getAttribute("userType");
-        String requestUri = request.getRequestURI();
-
-        // 管理员接口权限检"
-        if (requestUri.startsWith("/api/admin/")) {
-            if (!"regulator".equals(userType)) {
-                writeErrorResponse(response, ResultCode.FORBIDDEN);
-                return false;
+        String uri = request.getRequestURI();
+        boolean write = !"GET".equals(request.getMethod()) && !"HEAD".equals(request.getMethod());
+        try {
+            if (uri.startsWith("/api/admin/") || uri.matches("/api/user/(list|create|update|delete/.*|username/.*)")
+                    || (write && (uri.startsWith("/api/role/") || uri.startsWith("/api/permission/")))) {
+                actor.requireRoles("admin");
             }
-        }
-
-        // 供应链用户特殊权限检"
-        if (requestUri.contains("/supply-chain/")) {
-            if (!"supply_chain".equals(userType) && !"regulator".equals(userType)) {
-                writeErrorResponse(response, ResultCode.FORBIDDEN);
-                return false;
+            if (uri.startsWith("/api/role/user/")) {
+                String owner = uri.substring("/api/role/user/".length());
+                actor.requireSelfOrAdmin(Long.valueOf(owner));
             }
+            if (write && uri.startsWith("/api/anomaly/")) actor.requireRoles("quality");
+            if (write && uri.startsWith("/api/parts/category")) actor.requireRoles("admin");
+            if (write && !uri.equals("/api/parts/list") && uri.startsWith("/api/parts/") && !uri.contains("/did/") && !uri.contains("/units/") && !uri.contains("/unit/"))
+                actor.requireRoles("manufacturer");
+        } catch (com.kewei.parts.common.BusinessException | NumberFormatException e) {
+            writeErrorResponse(response, ResultCode.FORBIDDEN);
+            return false;
         }
-
         return true;
     }
 

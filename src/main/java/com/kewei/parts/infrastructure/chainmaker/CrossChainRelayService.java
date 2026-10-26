@@ -1,36 +1,55 @@
 package com.kewei.parts.infrastructure.chainmaker;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.kewei.parts.infrastructure.storage.*;
+import com.kewei.parts.module.parts.entity.CrossChainRecord;
+import com.kewei.parts.module.parts.mapper.CrossChainRecordMapper;
+import org.springframework.beans.factory.annotation.*;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import java.util.*;
 
-/**
- * 跨链摘要中继：在从链交易确认后，由调度/网关调用，向主链写入 {@code receive_cross_anchor}。
- * <p>未启用 SDK 时仅记录日志，不抛错，便于无链环境开发。</p>
- */
+/** 持久化中继任务：0待执行、1真实确认、2模拟、3执行中、-1失败。 */
 @Service
 public class CrossChainRelayService {
-
-    private static final Logger log = LoggerFactory.getLogger(CrossChainRelayService.class);
-
-    @Autowired(required = false)
-    private ChainMakerSdkInvoker sdkInvoker;
-
-    /**
-     * 将跨链摘要提交到当前配置的链（论文 5.2 中与主链合约对应）。
-     */
-    public void relayToMasterChain(CrossChainAnchorPayload payload) {
-        if (sdkInvoker == null || !sdkInvoker.isReady()) {
-            log.debug("跨链中继跳过：SDK 未启用或未就绪。payload source={} tx={}",
-                    payload.getSourceChainId(), payload.getSourceTxHash());
-            return;
+    @Autowired private com.kewei.parts.infrastructure.chain.ChainSdkRouter sdkRouter;
+    @Autowired private CrossChainRecordMapper mapper;
+    @Value("${parts.trace.storage.chain-mode:db}") private String mode;
+    public void relayToMasterChain(CrossChainAnchorPayload p) {
+        if(p.getPartsDid()==null || p.getPartsDid().isEmpty()) throw new IllegalArgumentException("跨链任务缺少主体DID");
+        CrossChainRecord record=new CrossChainRecord();record.setSourceChainId(p.getSourceChainId());record.setSourceTxHash(p.getSourceTxHash());
+        record.setSourceBlockHeight(p.getSourceBlockHeight());record.setBusinessType(p.getBusinessType());record.setBusinessId(p.getBusinessId());
+        record.setPartsDid(p.getPartsDid());record.setDataHash(p.getDataHash());record.setObjectCid(p.getObjectCid());
+        record.setTargetChainId(ChainRouter.MAIN_REGULATOR);record.setAttempts(0);record.setNextRetryAt(new Date());
+        record.setStatus("db".equals(mode)?2:0);
+        if("db".equals(mode)) { record.setTargetTxHash("sim-main-"+UUID.randomUUID());record.setTargetBlockHeight(mapper.selectMaxTargetBlockHeight()+1);record.setRelayTime(new Date()); }
+        try { mapper.insert(record); } catch(DuplicateKeyException e) {
+            CrossChainRecord old=mapper.selectOne(new LambdaQueryWrapper<CrossChainRecord>().eq(CrossChainRecord::getSourceChainId,p.getSourceChainId()).eq(CrossChainRecord::getSourceTxHash,p.getSourceTxHash()));
+            if(old==null || !Objects.equals(old.getDataHash(),p.getDataHash()) || !Objects.equals(old.getPartsDid(),p.getPartsDid()) || !Objects.equals(old.getBusinessId(),p.getBusinessId()))
+                throw new IllegalStateException("相同源交易对应不同业务内容",e);
         }
-        try {
-            sdkInvoker.invokeReceiveCrossAnchor(payload);
-            log.info("跨链摘要已提交主链: sourceTx={}", payload.getSourceTxHash());
-        } catch (Exception e) {
-            log.error("跨链摘要提交失败: {}", e.getMessage());
+    }
+    @Scheduled(fixedDelayString="${chainmaker.relay-interval-ms:10000}")
+    public void processPending() {
+        if(!com.kewei.parts.infrastructure.chain.ChainModes.isReal(mode)) return;
+        List<CrossChainRecord> records=mapper.selectList(new LambdaQueryWrapper<CrossChainRecord>().in(CrossChainRecord::getStatus,0,-1,3)
+            .lt(CrossChainRecord::getAttempts,10).and(w->w.isNull(CrossChainRecord::getNextRetryAt).or().le(CrossChainRecord::getNextRetryAt,new Date()))
+            .orderByAsc(CrossChainRecord::getId).last("LIMIT 50"));
+        for(CrossChainRecord record:records) {
+            if(mapper.claim(record.getId())!=1) continue;
+            record.setAttempts(record.getAttempts()+1);
+            try {
+                ChainStorageAdapter.StoreChainResult receipt=sdkRouter.relay(CrossChainAnchorPayload.builder()
+                    .sourceChainId(record.getSourceChainId()).sourceTxHash(record.getSourceTxHash()).sourceBlockHeight(record.getSourceBlockHeight())
+                    .businessType(record.getBusinessType()).businessId(record.getBusinessId()).partsDid(record.getPartsDid()).dataHash(record.getDataHash()).objectCid(record.getObjectCid()).build());
+                record.setTargetTxHash(receipt.getTxId());record.setTargetBlockHeight(receipt.getBlockHeight());record.setRelayTime(new Date());
+                record.setStatus(1);record.setLastError("");
+            } catch(Exception e) {
+                record.setStatus(-1);String message=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+                record.setLastError(message.substring(0,Math.min(message.length(),1000)));
+                record.setNextRetryAt(new Date(System.currentTimeMillis()+Math.min(300000L,10000L*(1L<<Math.min(record.getAttempts(),5)))));
+            }
+            mapper.updateById(record);
         }
     }
 }

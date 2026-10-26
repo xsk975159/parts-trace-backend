@@ -37,6 +37,8 @@ public class DidServiceImpl implements DidService {
 
     @Autowired
     private DidUtil didUtil;
+    @Autowired private com.kewei.parts.security.CurrentActor actor;
+    @Autowired private com.kewei.parts.security.KeyVault keyVault;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -58,16 +60,25 @@ public class DidServiceImpl implements DidService {
             String privateKey = didBindDTO.getPrivateKey();
 
             if (publicKey == null || publicKey.isEmpty()) {
-                Map<String, String> keyPair = RsaUtil.generateKeyPair();
-                publicKey = keyPair.get("publicKey");
-                privateKey = keyPair.get("privateKey");
+                SysUserRsaKey selected=rsaKeyMapper.selectOne(new LambdaQueryWrapper<SysUserRsaKey>().eq(SysUserRsaKey::getUserId,userId)
+                    .eq(SysUserRsaKey::getStatus,1).and(w->w.isNull(SysUserRsaKey::getExpireTime).or().gt(SysUserRsaKey::getExpireTime,new Date()))
+                    .orderByDesc(SysUserRsaKey::getDefaultKey).orderByDesc(SysUserRsaKey::getId).last("LIMIT 1"));
+                if(selected!=null) {publicKey=selected.getPublicKey();privateKey=keyVault.decrypt(selected.getPrivateKey());}
+                else {Map<String,String> pair=RsaUtil.generateKeyPair();publicKey=pair.get("publicKey");privateKey=pair.get("privateKey");}
 
+            }
+            if (privateKey == null || privateKey.isEmpty()
+                    || !RsaUtil.verify("bind-did:" + userId, RsaUtil.sign("bind-did:" + userId, privateKey), publicKey))
+                throw new BusinessException("绑定DID需要匹配的公私钥以证明密钥控制权");
+            SysUserRsaKey stored=rsaKeyMapper.selectOne(new LambdaQueryWrapper<SysUserRsaKey>().eq(SysUserRsaKey::getUserId,userId).eq(SysUserRsaKey::getPublicKey,publicKey).last("LIMIT 1"));
+            if(stored==null) {
                 SysUserRsaKey rsaKey = new SysUserRsaKey();
                 rsaKey.setUserId(userId);
                 rsaKey.setPublicKey(publicKey);
-                rsaKey.setPrivateKey(privateKey);
-                rsaKey.setKeySize(Integer.parseInt(keyPair.get("keySize")));
+                rsaKey.setPrivateKey(keyVault.encrypt(privateKey));
+                rsaKey.setKeySize(2048);
                 rsaKey.setStatus(1);
+                rsaKey.setDefaultKey(0);
                 rsaKeyMapper.insert(rsaKey);
             }
 
@@ -127,6 +138,7 @@ public class DidServiceImpl implements DidService {
         if (userDid == null) {
             throw new BusinessException(ResultCode.DID_NOT_BOUND);
         }
+        actor.requireSelfOrAdmin(userDid.getUserId());
         return userDid;
     }
 

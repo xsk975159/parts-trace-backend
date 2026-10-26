@@ -8,6 +8,7 @@ import java.util.List;
 
 @Data
 public class WorkbenchBatchActionDTO {
+    private String requestId;
 
     @NotBlank(message = "批次号不能为空")
     private String batchNumber;
@@ -21,6 +22,7 @@ public class WorkbenchBatchActionDTO {
     private String operatorName;
     private String organization;
     private String eventLocation;
+    @javax.validation.constraints.NotNull(message="事件时间不能为空")
     private Date eventTime;
     private String evidenceUrls;
 

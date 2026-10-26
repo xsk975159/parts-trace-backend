@@ -41,6 +41,7 @@ public class UserInfoVO implements Serializable {
      * 用户类型
      */
     private String userType;
+    private String organization;
 
     /**
      * 账户状"

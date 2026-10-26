@@ -25,6 +25,7 @@ public class SysUser implements Serializable {
 
     private String username;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String password;
 
     private String realName;
@@ -34,6 +35,7 @@ public class SysUser implements Serializable {
     private String phone;
 
     private String userType;
+    private String organization;
 
     private Integer status;
 

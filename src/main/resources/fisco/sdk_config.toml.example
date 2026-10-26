@@ -1,0 +1,25 @@
+# FISCO BCOS 3.x SDK配置模板。复制到仓库外，替换路径与节点地址。
+# 节点通信证书与交易账户私钥用途不同，二者都必须正确配置。
+[cryptoMaterial]
+certPath = "/absolute/path/to/sdk-certificates"
+useSMCrypto = "false"
+enableSsl = "true"
+
+# 非国密证书默认读取ca.crt、sdk.crt、sdk.key。
+# 国密SSL按官方SDK配置sm_ca.crt、sm_sdk.crt、sm_sdk.key及双证书，
+# 并确保部署使用与链密码套件一致的Solidity字节码。
+
+[network]
+messageTimeout = "60000"
+defaultGroup = "group0"
+peers = ["127.0.0.1:20200"]
+
+[account]
+keyStoreDir = "/absolute/path/to/accounts"
+accountFilePath = "/absolute/path/to/persistent-transaction-account.pem"
+accountFileFormat = "pem"
+# 对应地址必须与blockchain.networks.<链编码>.expected-account一致，
+# 不配置固定账户时SDK默认生成随机账户，应用会拒绝该身份不匹配的连接。
+
+[threadPool]
+threadPoolSize = "16"

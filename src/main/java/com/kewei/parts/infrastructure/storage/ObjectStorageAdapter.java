@@ -4,6 +4,10 @@ public interface ObjectStorageAdapter {
 
     StoreObjectResult store(String businessType, Long businessId, String content);
 
+    String read(String cid);
+    StoreObjectResult storeFile(String filename, byte[] bytes);
+    byte[] readFile(String cid);
+
     class StoreObjectResult {
         private final String cid;
         private final String contentHash;

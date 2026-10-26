@@ -15,6 +15,8 @@ public class QualityEventDTO implements Serializable {
     
     private static final long serialVersionUID = 1L;
 
+    private String requestId;
+
     @NotNull(message = "零部件ID不能为空")
     private Long partsId;
 
@@ -29,10 +31,8 @@ public class QualityEventDTO implements Serializable {
     
     private String eventLocation;
     
-    @NotNull(message = "操作人ID不能为空")
     private Long operatorId;
     
-    @NotBlank(message = "操作人姓名不能为")
     private String operatorName;
     
     private String organization;
@@ -58,7 +58,6 @@ public class QualityEventDTO implements Serializable {
     
     private String defectDescription;
     
-    @NotBlank(message = "检验员不能为空")
     private String inspector;
     
     private Long inspectorId;

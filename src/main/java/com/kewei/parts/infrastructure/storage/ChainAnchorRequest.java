@@ -17,12 +17,15 @@ public class ChainAnchorRequest {
     String objectCid;
     /** 零部件 / 单件 DID */
     String partsDid;
+    /** 目标链编码（多链路由结果，见 {@link ChainRouter}）；空则由适配器回退默认链 */
+    String chainId;
 
     public static ChainAnchorRequest minimal(String businessType, Long businessId, String dataHash) {
         return ChainAnchorRequest.builder()
                 .businessType(businessType)
                 .businessId(businessId)
                 .dataHash(dataHash)
+                .chainId(ChainRouter.MAIN_REGULATOR)
                 .build();
     }
 }

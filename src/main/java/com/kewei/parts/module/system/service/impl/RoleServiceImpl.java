@@ -157,7 +157,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public boolean hasRole(Long userId, String roleCode) {
         List<SysRole> roles = getUserRoles(userId);
-        return roles.stream().anyMatch(role -> role.getRoleCode().equals(roleCode));
+        return roles.stream().anyMatch(role -> Integer.valueOf(1).equals(role.getStatus()) && role.getRoleCode().equals(roleCode));
     }
 }
 

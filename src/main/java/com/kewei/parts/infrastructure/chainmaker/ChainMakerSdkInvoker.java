@@ -1,163 +1,88 @@
 package com.kewei.parts.infrastructure.chainmaker;
 
-import com.kewei.parts.infrastructure.storage.ChainAnchorRequest;
-import com.kewei.parts.infrastructure.storage.ChainStorageAdapter;
+import com.alibaba.fastjson.JSON;
+import com.kewei.parts.infrastructure.chain.*;
+import com.kewei.parts.infrastructure.storage.*;
 import org.chainmaker.pb.common.ResultOuterClass;
-import org.chainmaker.sdk.ChainClient;
-import org.chainmaker.sdk.ChainClientException;
-import org.chainmaker.sdk.ChainManager;
+import org.chainmaker.sdk.*;
 import org.chainmaker.sdk.config.SdkConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.io.Resource;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.Yaml;
-
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
-/**
- * 长安链 Java SDK 调用封装。仅在 {@code chainmaker.sdk.invoke-enabled=true} 且 {@code sdk_config.yml} 有效时初始化。
- */
+/** 仅处理长安链的SDK传输；跨平台路由与中继校验在ChainSdkRouter中执行。 */
 @Component
-@ConditionalOnProperty(prefix = "chainmaker.sdk", name = "invoke-enabled", havingValue = "true")
-public class ChainMakerSdkInvoker {
+@ConditionalOnExpression(ChainModes.REAL)
+public class ChainMakerSdkInvoker implements ChainDriver {
+    private final ResourceLoader resources;
+    private final ChainNetworkProperties properties;
+    private final Map<String, ChainClient> clients = new HashMap<>();
 
-    private static final Logger log = LoggerFactory.getLogger(ChainMakerSdkInvoker.class);
-
-    private final ResourceLoader resourceLoader;
-
-    @Value("${chainmaker.config-path:classpath:chainmaker/sdk_config.yml}")
-    private String configPath;
-
-    @Value("${chainmaker.wasm-contract-name:trace_anchor}")
-    private String wasmContractName;
-
-    @Value("${chainmaker.sdk.invoke-timeout-ms:60000}")
-    private long invokeTimeoutMs;
-
-    private volatile ChainClient chainClient;
-
-    public ChainMakerSdkInvoker(ResourceLoader resourceLoader) {
-        this.resourceLoader = resourceLoader;
+    public ChainMakerSdkInvoker(ResourceLoader resources, ChainNetworkProperties properties) {
+        this.resources = resources;
+        this.properties = properties;
     }
 
     @PostConstruct
-    public void init() {
+    public void init() throws Exception {
         try {
-            Resource resource = resourceLoader.getResource(configPath);
-            if (!resource.exists()) {
-                log.warn("ChainMaker sdk_config 不存在: {}，跳过 SDK 初始化", configPath);
-                return;
-            }
-            try (InputStream in = resource.getInputStream()) {
-                Yaml yaml = new Yaml();
-                SdkConfig sdkConfig = yaml.loadAs(in, SdkConfig.class);
-                if (sdkConfig == null) {
-                    log.warn("ChainMaker sdk_config 解析为空");
-                    return;
+            for (Map.Entry<String, ChainNetworkProperties.Network> entry : properties.getNetworks().entrySet()) {
+                ChainNetworkProperties.Network network = entry.getValue();
+                if (network.getPlatform() != platform()) continue;
+                try (InputStream stream = resources.getResource(network.getSdkConfig()).getInputStream()) {
+                    SdkConfig configuration = new Yaml().loadAs(stream, SdkConfig.class);
+                    if (configuration == null) throw new IllegalArgumentException("SDK配置为空");
+                    if (configuration.getChainClient() == null) configuration.setChainClient(configuration.getChain_client());
+                    ChainMakerKeyMaterial.prepare(configuration.getChainClient());
+                    ChainClient client = ChainManager.getInstance().createChainClient(configuration);
+                    clients.put(entry.getKey(), client);
+                    if (client.getChainId() == null || client.getChainId().isEmpty()) throw new IllegalStateException("无法确认长安链物理链ID");
+                    if (network.getExpectedChainId() != null && !network.getExpectedChainId().isEmpty()
+                            && !network.getExpectedChainId().equals(client.getChainId())) throw new IllegalStateException("长安链物理链ID与配置不符");
                 }
-                if (sdkConfig.getChainClient() == null && sdkConfig.getChain_client() != null) {
-                    sdkConfig.setChainClient(sdkConfig.getChain_client());
-                }
-                this.chainClient = ChainManager.getInstance().createChainClient(sdkConfig);
-                log.info("ChainMaker SDK 初始化成功，合约名默认: {}", wasmContractName);
             }
-        } catch (Exception e) {
-            log.error("ChainMaker SDK 初始化失败（部署链并检查 sdk_config / 证书路径后重试）", e);
-            this.chainClient = null;
-        }
+        } catch (Exception error) { close(); throw new IllegalStateException("长安链SDK初始化失败", error); }
     }
 
-    public boolean isReady() {
-        return chainClient != null;
+    @Override public ChainPlatform platform() { return ChainPlatform.CHAINMAKER; }
+    @Override public boolean configured(String code) { return clients.containsKey(code); }
+    @Override public String physicalIdentity(String code) { return "CHAINMAKER:" + client(code).getChainId(); }
+    public boolean isReady() { return !clients.isEmpty(); }
+
+    private ChainClient client(String code) {
+        ChainClient client = clients.get(code);
+        if (client == null) throw new IllegalStateException("未配置长安链连接：" + code);
+        return client;
     }
 
-    /**
-     * 调用合约 {@code save_anchor}。
-     */
-    public ChainStorageAdapter.StoreChainResult invokeSaveAnchor(ChainAnchorRequest req) throws ChainClientException {
-        Map<String, byte[]> args = saveAnchorArgs(req);
-        return invokeContract(wasmContractName, "save_anchor", args);
+    @Override
+    public String query(String code, String method, Map<String, byte[]> arguments) throws Exception {
+        ResultOuterClass.TxResponse response = client(code).queryContract(properties.network(code).getContractName(), method, "", arguments, properties.getTimeoutMs());
+        check(response);
+        return response.getContractResult().getResult().toStringUtf8();
     }
 
-    /**
-     * 调用合约 {@code append_vc}。
-     */
-    public void invokeAppendVc(String partsDid, String vcId, String vcHash) throws ChainClientException {
-        if (partsDid == null || vcId == null || vcHash == null) {
-            return;
-        }
-        Map<String, byte[]> args = new HashMap<>();
-        args.put("parts_did", partsDid.getBytes(StandardCharsets.UTF_8));
-        args.put("vc_id", vcId.getBytes(StandardCharsets.UTF_8));
-        args.put("vc_hash", vcHash.getBytes(StandardCharsets.UTF_8));
-        invokeContract(wasmContractName, "append_vc", args);
+    @Override
+    public ChainStorageAdapter.StoreChainResult invoke(String code, String method, Map<String, byte[]> arguments) throws Exception {
+        ResultOuterClass.TxResponse response = client(code).invokeContract(properties.network(code).getContractName(), method, "", arguments, properties.getTimeoutMs(), properties.getTimeoutMs());
+        check(response);
+        if (response.getTxId().isEmpty() || response.getTxBlockHeight() <= 0) throw new ChainClientException("未获得长安链确认回执");
+        return new ChainStorageAdapter.StoreChainResult(response.getTxId(), response.getTxBlockHeight());
     }
 
-    /**
-     * 调用合约 {@code receive_cross_anchor}（跨链中继在上链成功后调用）。
-     */
-    public ChainStorageAdapter.StoreChainResult invokeReceiveCrossAnchor(CrossChainAnchorPayload payload)
-            throws ChainClientException {
-        Map<String, byte[]> args = new HashMap<>();
-        putUtf8(args, "source_chain_id", payload.getSourceChainId());
-        putUtf8(args, "source_tx_hash", payload.getSourceTxHash());
-        putUtf8(args, "parts_did", payload.getPartsDid());
-        putUtf8(args, "data_hash", payload.getDataHash());
-        if (payload.getObjectCid() != null) {
-            putUtf8(args, "object_cid", payload.getObjectCid());
-        }
-        return invokeContract(wasmContractName, "receive_cross_anchor", args);
+    public static void check(ResultOuterClass.TxResponse response) throws ChainClientException {
+        if (response == null || response.getCode() != ResultOuterClass.TxStatusCode.SUCCESS || !response.hasContractResult() || response.getContractResult().getCode() != 0)
+            throw new ChainClientException("长安链合约执行失败或回执不完整");
     }
 
-    private static Map<String, byte[]> saveAnchorArgs(ChainAnchorRequest req) {
-        Map<String, byte[]> args = new HashMap<>();
-        putUtf8(args, "business_type", req.getBusinessType());
-        args.put("business_id", String.valueOf(req.getBusinessId()).getBytes(StandardCharsets.UTF_8));
-        putUtf8(args, "data_hash", req.getDataHash());
-        if (req.getObjectCid() != null && !req.getObjectCid().isEmpty()) {
-            putUtf8(args, "object_cid", req.getObjectCid());
-        }
-        if (req.getPartsDid() != null && !req.getPartsDid().isEmpty()) {
-            putUtf8(args, "parts_did", req.getPartsDid());
-        }
-        return args;
-    }
-
-    private static void putUtf8(Map<String, byte[]> args, String k, String v) {
-        if (v != null) {
-            args.put(k, v.getBytes(StandardCharsets.UTF_8));
-        }
-    }
-
-    private ChainStorageAdapter.StoreChainResult invokeContract(String contractName, String method, Map<String, byte[]> args)
-            throws ChainClientException {
-        if (chainClient == null) {
-            throw new ChainClientException("ChainClient 未初始化");
-        }
-        try {
-            ResultOuterClass.TxResponse resp = chainClient.invokeContract(
-                    contractName,
-                    method,
-                    "",
-                    args,
-                    invokeTimeoutMs,
-                    invokeTimeoutMs);
-            if (resp.getCode() != ResultOuterClass.TxStatusCode.SUCCESS) {
-                throw new ChainClientException("合约调用失败: code=" + resp.getCode() + " msg=" + resp.getMessage());
-            }
-            return new ChainStorageAdapter.StoreChainResult(resp.getTxId(), resp.getTxBlockHeight());
-        } catch (ChainClientException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new ChainClientException(e.getMessage());
-        }
+    @PreDestroy
+    public void close() {
+        for (ChainClient client : clients.values()) client.stop();
+        clients.clear();
     }
 }

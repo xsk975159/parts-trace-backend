@@ -18,6 +18,9 @@ public class TraceEvent implements Serializable {
     private Long id;
 
     private String eventCode;
+    private String requestId;
+    private String requestHash;
+    private String auditComment;
     
     private Long partsId;
 

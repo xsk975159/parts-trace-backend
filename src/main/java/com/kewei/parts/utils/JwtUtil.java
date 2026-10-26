@@ -35,7 +35,24 @@ public class JwtUtil {
         claims.put("userId", userId);
         claims.put("username", username);
         claims.put("userType", userType);
+        claims.put("tokenType", "access");
         return generateToken(claims, expiration);
+    }
+
+    public String generateToken(Long userId, String username, String userType, String passwordHash) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", userId); claims.put("username", username); claims.put("userType", userType);
+        claims.put("tokenType", "access"); claims.put("authStamp", authStamp(passwordHash));
+        return generateToken(claims, expiration);
+    }
+
+    public String authStamp(String passwordHash) {
+        return new DidUtil().sha256Hex(passwordHash == null ? "" : passwordHash);
+    }
+
+    @javax.annotation.PostConstruct
+    public void checkSecret() {
+        if (secret == null || secret.length() < 32) throw new IllegalStateException("JWT_SECRET须配置为至少32个字符的独立随机密钥");
     }
 
     /**
@@ -45,6 +62,7 @@ public class JwtUtil {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
+        claims.put("tokenType", "refresh");
         return generateToken(claims, refreshExpiration);
     }
 
@@ -56,6 +74,9 @@ public class JwtUtil {
         Date expiryDate = new Date(now.getTime() + expiration);
 
         return JWT.create()
+                .withJWTId(java.util.UUID.randomUUID().toString())
+                .withClaim("tokenType", (String) claims.get("tokenType"))
+                .withClaim("authStamp", (String) claims.get("authStamp"))
                 .withClaim("userId", (Long) claims.get("userId"))
                 .withClaim("username", (String) claims.get("username"))
                 .withClaim("userType", (String) claims.get("userType"))

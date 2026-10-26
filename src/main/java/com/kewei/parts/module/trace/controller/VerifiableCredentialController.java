@@ -65,6 +65,11 @@ public class VerifiableCredentialController {
     /**
      * 签发综合溯源凭证
      */
+    @PostMapping("/comprehensive/unit/{unitId}")
+    public Result<VerifiableCredential> issueUnitComprehensiveCredential(@PathVariable Long unitId) {
+        return Result.success(credentialService.issueUnitComprehensiveCredential(unitId));
+    }
+
     @Operation(summary = "签发综合溯源凭证")
     @PostMapping("/comprehensive/{partsId}")
     public Result<VerifiableCredential> issueComprehensiveCredential(@PathVariable Long partsId) {

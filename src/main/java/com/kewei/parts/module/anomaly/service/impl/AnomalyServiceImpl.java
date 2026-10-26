@@ -41,6 +41,10 @@ public class AnomalyServiceImpl implements AnomalyService {
 
     @Autowired
     private AnomalyChainContractHook anomalyChainContractHook;
+    @Autowired private com.kewei.parts.security.CurrentActor actor;
+    @Autowired private com.kewei.parts.module.anomaly.service.QualitySafetyService safety;
+    @Autowired private com.kewei.parts.module.trace.mapper.TraceQualityMapper qualityMapper;
+    @Autowired private com.kewei.parts.module.parts.mapper.PartsCategoryMapper categoryMapper;
 
     // ===== 规则管理 =====
 
@@ -63,12 +67,15 @@ public class AnomalyServiceImpl implements AnomalyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void createRule(AnomalyRule rule) {
+        actor.requireRoles("quality");
+        com.kewei.parts.module.anomaly.service.QualitySafetyService.validateRule(rule);
         if (StringUtils.hasText(rule.getRuleCode())) {
             LambdaQueryWrapper<AnomalyRule> w = new LambdaQueryWrapper<>();
             w.eq(AnomalyRule::getRuleCode, rule.getRuleCode());
             if (ruleMapper.selectOne(w) != null) throw new BusinessException("规则编码已存在");
         }
         if (rule.getStatus() == null) rule.setStatus(1);
+        rule.setCreatorId(actor.id());
         ruleMapper.insert(rule);
         anomalyChainContractHook.afterRuleMutation(rule, "create");
     }
@@ -76,6 +83,8 @@ public class AnomalyServiceImpl implements AnomalyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateRule(AnomalyRule rule) {
+        actor.requireRoles("quality");
+        com.kewei.parts.module.anomaly.service.QualitySafetyService.validateRule(rule);
         if (ruleMapper.selectById(rule.getId()) == null) throw new BusinessException("规则不存在");
         ruleMapper.updateById(rule);
         anomalyChainContractHook.afterRuleMutation(ruleMapper.selectById(rule.getId()), "update");
@@ -84,6 +93,7 @@ public class AnomalyServiceImpl implements AnomalyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteRule(Long id) {
+        actor.requireRoles("quality");
         AnomalyRule existing = ruleMapper.selectById(id);
         if (existing == null) throw new BusinessException("规则不存在");
         ruleMapper.deleteById(id);
@@ -111,10 +121,14 @@ public class AnomalyServiceImpl implements AnomalyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleAlert(Long id, String handler, String handleResult) {
+        actor.requireRoles("quality");
+        if(handleResult==null || handleResult.trim().isEmpty()) throw new BusinessException("请填写处置结果");
         AnomalyAlert alert = alertMapper.selectById(id);
         if (alert == null) throw new BusinessException("预警不存在");
+        partsInfoMapper.lockById(alert.getPartsId());
+        safety.assertReinspected(alert);
         alert.setStatus(1);
-        alert.setHandler(handler);
+        alert.setHandler(actor.user().getUsername());
         alert.setHandleResult(handleResult);
         alert.setHandleTime(new Date());
         alertMapper.updateById(alert);
@@ -147,13 +161,25 @@ public class AnomalyServiceImpl implements AnomalyService {
         stats.put("unhandledAlerts", unhandledAlerts);
 
         // 今日事件数（简化实现）
-        stats.put("todayEvents", 5);
+        java.time.LocalDate today=java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        java.util.Date dayStart=java.util.Date.from(today.atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant());
+        java.util.Date monthStart=java.util.Date.from(today.withDayOfMonth(1).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant());
+        stats.put("todayEvents", traceEventMapper.selectCount(new LambdaQueryWrapper<com.kewei.parts.module.trace.entity.TraceEvent>()
+                .ge(com.kewei.parts.module.trace.entity.TraceEvent::getEventTime,dayStart)));
 
         // 本月事件数（简化实现）
-        stats.put("monthEvents", traceEventMapper.selectCount(new LambdaQueryWrapper<>()));
+        stats.put("monthEvents", traceEventMapper.selectCount(new LambdaQueryWrapper<com.kewei.parts.module.trace.entity.TraceEvent>()
+            .ge(com.kewei.parts.module.trace.entity.TraceEvent::getEventTime,monthStart)));
 
         // 质检通过率（模拟数据）
-        stats.put("qualityPassRate", 98.5);
+        Map<String,Object> quality=qualityMapper.monthlyPassRate(monthStart);
+        long inspections=((Number)quality.get("total")).longValue();
+        long passed=quality.get("passed")==null?0:((Number)quality.get("passed")).longValue();
+        stats.put("qualityPassRate",inspections==0?0:Math.round(passed*10000.0/inspections)/100.0);
+        stats.put("categoryStats",partsInfoMapper.categoryStatistics());
+        stats.put("eventDistribution",traceEventMapper.eventDistribution());
+        java.util.Date weekStart=java.util.Date.from(today.minusDays(6).atStartOfDay(java.time.ZoneId.of("Asia/Shanghai")).toInstant());
+        stats.put("eventTrend",traceEventMapper.eventTrend(weekStart));
 
         return stats;
     }

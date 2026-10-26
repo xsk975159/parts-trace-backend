@@ -26,6 +26,8 @@ public class AnomalyAlert implements Serializable {
     private String title;
 
     private Long partsId;
+    private Long eventId;
+    private Long unitId;
 
     private String partsCode;
 

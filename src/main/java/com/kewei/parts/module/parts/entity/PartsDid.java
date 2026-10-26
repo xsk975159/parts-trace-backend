@@ -50,11 +50,14 @@ public class PartsDid implements Serializable {
     private Long blockHeight;
 
     /** 绑定类型：QRCODE / RFID */
+    @TableField(updateStrategy=FieldStrategy.IGNORED)
     private String bindType;
 
     /** 绑定码值 */
+    @TableField(updateStrategy=FieldStrategy.IGNORED)
     private String bindCode;
 
+    @TableField(updateStrategy=FieldStrategy.IGNORED)
     private Date unboundTime;
 
     private String remark;

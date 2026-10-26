@@ -25,6 +25,19 @@ public class UserController {
     @Autowired
     private UserService userService;
 
+    @Autowired private com.kewei.parts.security.RevokedTokenMapper revokedTokenMapper;
+    @Autowired private com.kewei.parts.utils.JwtUtil jwtUtil;
+
+    @PostMapping("/logout")
+    public Result<Void> logout(HttpServletRequest request) {
+        String token = request.getHeader("Authorization");
+        com.auth0.jwt.interfaces.DecodedJWT decoded = jwtUtil.parseToken(token.startsWith("Bearer ") ? token.substring(7) : token);
+        com.kewei.parts.security.RevokedToken record = new com.kewei.parts.security.RevokedToken();
+        record.setId(decoded.getId()); record.setExpiresAt(decoded.getExpiresAt());
+        if (revokedTokenMapper.selectById(record.getId()) == null) revokedTokenMapper.insert(record);
+        return Result.successMsg("已退出登录");
+    }
+
     @Operation(summary = "用户注册")
     @PostMapping("/register")
     public Result<Void> register(@Validated @RequestBody UserRegisterDTO registerDTO) {

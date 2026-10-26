@@ -23,6 +23,12 @@ public class RsaKeyController {
 
     @Autowired
     private RsaKeyService rsaKeyService;
+    @Autowired private com.kewei.parts.module.identity.service.impl.RsaKeyServiceImpl keyOperations;
+
+    @PostMapping("/migrate")
+    public Result<Integer> migrateOwnKeys(HttpServletRequest request) {
+        return Result.success(keyOperations.migrateOwnKeys((Long) request.getAttribute("userId")));
+    }
 
     /**
      * 生成RSA密钥对

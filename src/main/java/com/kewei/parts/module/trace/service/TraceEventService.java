@@ -59,6 +59,8 @@ public interface TraceEventService {
 
     /** 异常事件审核 */
     TraceEvent auditEvent(Long eventId, Integer auditStatus, String auditComment);
+    java.util.Map<String,Object> getEventPage(int page,int pageSize,Long partsId,Long unitId,String partsCode,String eventType);
+    java.util.Map<String,Object> getCertificatePage(int page,int pageSize,Long partsId,String partsCode);
 }
 
 

@@ -1,0 +1,10 @@
+{
+  "sdkConfig": "file:/absolute/path/sdk_config.toml",
+  "group": "group0",
+  "expectedChainId": "chain0",
+  "expectedAccount": "0x1111111111111111111111111111111111111111",
+  "localChainCode": "sub-logistics",
+  "writerAddresses": [],
+  "relayPublicKeys": {},
+  "binary": "classpath:fisco/TraceAnchor.bin"
+}

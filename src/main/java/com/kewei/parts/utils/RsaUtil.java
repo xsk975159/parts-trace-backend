@@ -1,6 +1,7 @@
 package com.kewei.parts.utils;
 
 import javax.crypto.Cipher;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -50,7 +51,7 @@ public class RsaUtil {
 
         Cipher cipher = Cipher.getInstance(ALGORITHM);
         cipher.init(Cipher.ENCRYPT_MODE, publicKey);
-        byte[] encryptedData = cipher.doFinal(data.getBytes());
+        byte[] encryptedData = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
 
         return Base64.getEncoder().encodeToString(encryptedData);
     }
@@ -68,7 +69,7 @@ public class RsaUtil {
         cipher.init(Cipher.DECRYPT_MODE, privateKey);
         byte[] decryptedData = cipher.doFinal(Base64.getDecoder().decode(encryptedData));
 
-        return new String(decryptedData);
+        return new String(decryptedData, StandardCharsets.UTF_8);
     }
 
     /**
@@ -82,7 +83,7 @@ public class RsaUtil {
 
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initSign(privateKey);
-        signature.update(data.getBytes());
+        signature.update(data.getBytes(StandardCharsets.UTF_8));
         byte[] signBytes = signature.sign();
 
         return Base64.getEncoder().encodeToString(signBytes);
@@ -99,7 +100,7 @@ public class RsaUtil {
 
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initVerify(publicKey);
-        signature.update(data.getBytes());
+        signature.update(data.getBytes(StandardCharsets.UTF_8));
         byte[] signBytes = Base64.getDecoder().decode(signStr);
 
         return signature.verify(signBytes);

@@ -10,8 +10,11 @@ import lombok.Value;
 @Builder
 public class CrossChainAnchorPayload {
 
+    Long businessId;
     String sourceChainId;
     String sourceTxHash;
+    Long sourceBlockHeight;
+    String businessType;
     String partsDid;
     String dataHash;
     String objectCid;

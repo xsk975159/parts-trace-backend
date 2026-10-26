@@ -27,6 +27,7 @@ public class AnomalyRule implements Serializable {
     private String description;
 
     /** 触发条件（JSON字符串） */
+    @TableField("`condition`")
     private String condition;
 
     /** 处理动作（JSON字符串） */

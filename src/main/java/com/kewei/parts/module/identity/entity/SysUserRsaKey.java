@@ -26,7 +26,11 @@ public class SysUserRsaKey implements Serializable {
 
     private String publicKey;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @com.alibaba.fastjson.annotation.JSONField(serialize = false, deserialize = false)
     private String privateKey;
+
+    private Integer defaultKey;
 
     private Integer keySize;
 

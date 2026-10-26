@@ -20,6 +20,14 @@ public class JwtAuthInterceptor implements HandlerInterceptor {
 
     @Autowired
     private JwtUtil jwtUtil;
+    @Autowired private com.kewei.parts.module.system.mapper.SysUserMapper userMapper;
+    @Autowired private com.kewei.parts.security.RevokedTokenMapper revokedTokenMapper;
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay=3600000)
+    public void cleanExpiredRevocations() {
+        revokedTokenMapper.delete(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.kewei.parts.security.RevokedToken>()
+                .lt(com.kewei.parts.security.RevokedToken::getExpiresAt,new java.util.Date()));
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -53,10 +61,20 @@ public class JwtAuthInterceptor implements HandlerInterceptor {
             return false;
         }
 
+        com.auth0.jwt.interfaces.DecodedJWT decoded = jwtUtil.parseToken(token);
+        if (decoded == null || !"access".equals(decoded.getClaim("tokenType").asString())) {
+            writeErrorResponse(response, ResultCode.UNAUTHORIZED); return false;
+        }
+        com.kewei.parts.module.system.entity.SysUser account = userMapper.selectById(decoded.getClaim("userId").asLong());
+        if (account == null || !Integer.valueOf(1).equals(account.getStatus()) || Integer.valueOf(1).equals(account.getDeleted())
+                || !jwtUtil.authStamp(account.getPassword()).equals(decoded.getClaim("authStamp").asString())
+                || revokedTokenMapper.selectById(decoded.getId()) != null) {
+            writeErrorResponse(response, ResultCode.UNAUTHORIZED); return false;
+        }
         // 从Token中获取用户信息并设置到request"
         Long userId = jwtUtil.getUserIdFromToken(token);
         String username = jwtUtil.getUsernameFromToken(token);
-        String userType = jwtUtil.getUserTypeFromToken(token);
+        String userType = account.getUserType();
 
         request.setAttribute("userId", userId);
         request.setAttribute("username", username);

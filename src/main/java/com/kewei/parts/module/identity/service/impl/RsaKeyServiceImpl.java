@@ -30,6 +30,7 @@ public class RsaKeyServiceImpl implements RsaKeyService {
 
     @Autowired
     private SysUserMapper userMapper;
+    @Autowired private com.kewei.parts.security.KeyVault keyVault;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -55,9 +56,10 @@ public class RsaKeyServiceImpl implements RsaKeyService {
             SysUserRsaKey rsaKey = new SysUserRsaKey();
             rsaKey.setUserId(userId);
             rsaKey.setPublicKey(keyPair.get("publicKey"));
-            rsaKey.setPrivateKey(keyPair.get("privateKey"));
+            rsaKey.setPrivateKey(keyVault.encrypt(keyPair.get("privateKey")));
             rsaKey.setKeySize(Integer.parseInt(keyPair.get("keySize")));
             rsaKey.setStatus(1);
+            rsaKey.setDefaultKey(0);
             rsaKey.setExpireTime(expireTime);
 
             int result = rsaKeyMapper.insert(rsaKey);
@@ -83,7 +85,8 @@ public class RsaKeyServiceImpl implements RsaKeyService {
         LambdaQueryWrapper<SysUserRsaKey> wrapper = new LambdaQueryWrapper<SysUserRsaKey>();
         wrapper.eq(SysUserRsaKey::getUserId, userId);
         wrapper.eq(SysUserRsaKey::getStatus, 1);
-        wrapper.orderByDesc(SysUserRsaKey::getCreateTime);
+        wrapper.and(w -> w.isNull(SysUserRsaKey::getExpireTime).or().gt(SysUserRsaKey::getExpireTime, new Date()));
+        wrapper.orderByDesc(SysUserRsaKey::getDefaultKey).orderByDesc(SysUserRsaKey::getId);
         wrapper.last("LIMIT 1");
         SysUserRsaKey rsaKey = rsaKeyMapper.selectOne(wrapper);
 
@@ -101,10 +104,27 @@ public class RsaKeyServiceImpl implements RsaKeyService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void setDefaultKey(Long userId, Long keyId) {
+        // 锁定用户行，使同一用户同时切换默认密钥时仍只有一个默认项。
+        userMapper.lockById(userId);
         SysUserRsaKey rsaKey = rsaKeyMapper.selectById(keyId);
-        if (rsaKey == null || !rsaKey.getUserId().equals(userId)) {
-            throw new BusinessException(ResultCode.RSA_KEY_NOT_FOUND);
+        if (rsaKey == null || !rsaKey.getUserId().equals(userId)) throw new BusinessException(ResultCode.RSA_KEY_NOT_FOUND);
+        if (!Integer.valueOf(1).equals(rsaKey.getStatus()) || (rsaKey.getExpireTime() != null && !rsaKey.getExpireTime().after(new Date())))
+            throw new BusinessException("不能选择已停用或过期的密钥");
+        rsaKeyMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SysUserRsaKey>()
+                .eq(SysUserRsaKey::getUserId, userId).set(SysUserRsaKey::getDefaultKey, 0));
+        rsaKey.setDefaultKey(1); rsaKeyMapper.updateById(rsaKey);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int migrateOwnKeys(Long userId) {
+        userMapper.lockById(userId);
+        int count = 0;
+        for (SysUserRsaKey key : getKeysByUserId(userId)) {
+            if (key.getPrivateKey() != null && !keyVault.isEncrypted(key.getPrivateKey())) {
+                key.setPrivateKey(keyVault.encrypt(key.getPrivateKey())); rsaKeyMapper.updateById(key); count++;
+            }
         }
+        return count;
     }
 
     @Override

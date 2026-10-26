@@ -5,6 +5,8 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS sys_user;
 CREATE TABLE sys_user (
+    organization VARCHAR(256) NULL,
+
     id              BIGINT       NOT NULL AUTO_INCREMENT,
     username        VARCHAR(64)  NOT NULL UNIQUE,
     password        VARCHAR(255) NOT NULL,
@@ -88,6 +90,8 @@ CREATE TABLE sys_user_did (
 
 DROP TABLE IF EXISTS sys_user_rsa_key;
 CREATE TABLE sys_user_rsa_key (
+    default_key TINYINT NOT NULL DEFAULT 0,
+
     id          BIGINT   NOT NULL AUTO_INCREMENT,
     user_id     BIGINT   NOT NULL,
     public_key  TEXT,
@@ -231,6 +235,10 @@ CREATE TABLE object_storage_record (
 
 DROP TABLE IF EXISTS trace_event;
 CREATE TABLE trace_event (
+    request_id VARCHAR(64) NULL,
+    request_hash VARCHAR(64) NULL,
+    audit_comment TEXT NULL,
+
     id                BIGINT       NOT NULL AUTO_INCREMENT,
     event_code        VARCHAR(128) NOT NULL UNIQUE,
     parts_id          BIGINT       NOT NULL,
@@ -262,6 +270,7 @@ CREATE TABLE trace_event (
     create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP,
     update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted           TINYINT      DEFAULT 0,
+    UNIQUE KEY uk_trace_request(request_id),
     PRIMARY KEY (id),
     KEY idx_parts_id (parts_id),
     KEY idx_event_type (event_type)
@@ -379,6 +388,8 @@ CREATE TABLE verifiable_credential (
     blockchain_tx_id  VARCHAR(256),
     create_time       DATETIME     DEFAULT CURRENT_TIMESTAMP,
     update_time       DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_vc_identifier(vc_id),
+    UNIQUE KEY uk_vc_event_type(event_id,vc_type),
     PRIMARY KEY (id),
     KEY idx_parts_id (parts_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -430,6 +441,9 @@ CREATE TABLE anomaly_rule (
 
 DROP TABLE IF EXISTS anomaly_alert;
 CREATE TABLE anomaly_alert (
+    event_id BIGINT NULL,
+    unit_id BIGINT NULL,
+
     id            BIGINT       NOT NULL AUTO_INCREMENT,
     alert_type    VARCHAR(64),
     alert_level   VARCHAR(32),
@@ -447,6 +461,7 @@ CREATE TABLE anomaly_alert (
     create_time   DATETIME     DEFAULT CURRENT_TIMESTAMP,
     update_time   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted       TINYINT      DEFAULT 0,
+    UNIQUE KEY uk_alert_event_rule(event_id,rule_id),
     PRIMARY KEY (id),
     KEY idx_parts_id (parts_id),
     KEY idx_status (status)
@@ -757,3 +772,88 @@ INSERT IGNORE INTO blockchain_record (business_id, business_type, tx_id, block_h
 (3, 'trace_event', 'tx_evt_u001_l', 22003, '0xblockhash22003', 'hash_evt_u001_l', 'parts-chain-1', 1),
 (5, 'verifiable_credential', 'tx_vc_u002_q', 23005, '0xblockhash23005', 'hash_vc_u002_q', 'parts-chain-1', 1),
 (8, 'verifiable_credential', 'tx_vc_u003_q', 23008, '0xblockhash23008', 'hash_vc_u003_q', 'parts-chain-1', 1);
+
+-- ============ 跨链拓扑（数据库模拟：1 主监管链 + 3 业务子链） ============
+DROP TABLE IF EXISTS chain_info;
+CREATE TABLE chain_info (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    chain_code  VARCHAR(64)  NOT NULL,
+    chain_name  VARCHAR(64)  NOT NULL,
+    chain_type  VARCHAR(32)  NOT NULL DEFAULT 'CHAINMAKER',
+    chain_role  VARCHAR(32)  NOT NULL DEFAULT 'BUSINESS',
+    description VARCHAR(255),
+    status      TINYINT      DEFAULT 1,
+    create_time DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_chain_code (chain_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO chain_info (chain_code, chain_name, chain_type, chain_role, description, status) VALUES
+('main-regulator', '主监管链', 'CHAINMAKER', 'REGULATOR', '汇聚各业务子链存证摘要，监管方核验入口', 1),
+('sub-production', '生产子链', 'CHAINMAKER', 'BUSINESS', '生产环节溯源数据存证', 1),
+('sub-quality', '质检子链', 'CHAINMAKER', 'BUSINESS', '质检环节溯源数据存证', 1),
+('sub-logistics', '物流子链', 'FISCO_BCOS', 'BUSINESS', '物流环节溯源数据存证（异构链）', 1);
+
+DROP TABLE IF EXISTS cross_chain_record;
+CREATE TABLE cross_chain_record (
+    business_id BIGINT NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    last_error VARCHAR(1024) NULL,
+    next_retry_at DATETIME NULL,
+
+    id                  BIGINT       NOT NULL AUTO_INCREMENT,
+    source_chain_id     VARCHAR(64),
+    source_tx_hash      VARCHAR(256),
+    source_block_height BIGINT,
+    business_type       VARCHAR(64),
+    parts_did           VARCHAR(256),
+    data_hash           VARCHAR(256),
+    object_cid          VARCHAR(256),
+    target_chain_id     VARCHAR(64),
+    target_tx_hash      VARCHAR(256),
+    target_block_height BIGINT,
+    status              TINYINT      DEFAULT 1,
+    relay_time          DATETIME,
+    create_time         DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_cross_source_tx(source_chain_id,source_tx_hash),
+    PRIMARY KEY (id),
+    KEY idx_parts_did (parts_did),
+    KEY idx_source_chain (source_chain_id),
+    KEY idx_target_chain (target_chain_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- 新增安全与可靠提交表（本文件整体仅供新建或明确重建数据库使用）。
+DROP TABLE IF EXISTS chain_task;
+DROP TABLE IF EXISTS operation_audit;
+DROP TABLE IF EXISTS revoked_token;
+
+CREATE TABLE IF NOT EXISTS revoked_token (
+ id VARCHAR(64) NOT NULL PRIMARY KEY,
+ expires_at DATETIME NOT NULL,
+ KEY idx_revoked_expiry(expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS operation_audit (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ action VARCHAR(64) NOT NULL,
+ subject_id BIGINT,
+ data_hash VARCHAR(64),
+ object_cid VARCHAR(256),
+ chain_tx_id VARCHAR(256),
+ create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS chain_task (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ task_key VARCHAR(64) NOT NULL,
+ action VARCHAR(32) NOT NULL,
+ payload LONGTEXT NOT NULL,
+ status TINYINT NOT NULL DEFAULT 0,
+ attempts INT NOT NULL DEFAULT 0,
+ last_error VARCHAR(1024),
+ tx_id VARCHAR(256),
+ next_retry_at DATETIME,
+ create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uk_chain_task(task_key),
+ KEY idx_chain_task_retry(status,next_retry_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+UPDATE anomaly_rule SET status=0 WHERE JSON_VALID(`condition`)=0 OR JSON_VALID(action)=0;

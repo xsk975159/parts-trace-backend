@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUser> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM sys_user WHERE id = #{id} AND deleted = 0 FOR UPDATE")
+    SysUser lockById(@org.apache.ibatis.annotations.Param("id") Long id);
 }
 
 

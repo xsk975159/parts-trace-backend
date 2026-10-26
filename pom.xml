@@ -28,7 +28,11 @@
         <springdoc.version>1.6.9</springdoc.version>
         <jwt.version>4.3.0</jwt.version>
         <chainmaker.version>2.3.3</chainmaker.version>
-        <skipTests>true</skipTests>
+        <fisco.version>3.8.0</fisco.version>
+        <trace.bouncycastle.version>1.78</trace.bouncycastle.version>
+        <jackson-bom.version>2.14.3</jackson-bom.version>
+        <gson.version>2.10.1</gson.version>
+        <skipTests>false</skipTests>
     </properties>
 
     <dependencies>
@@ -123,6 +127,11 @@
             <groupId>org.chainmaker</groupId>
             <artifactId>chainmaker-sdk-java</artifactId>
             <version>${chainmaker.version}</version>
+            <exclusions>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk15on</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk15on</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcutil-jdk15on</artifactId></exclusion>
+            </exclusions>
         </dependency>
 
         <!-- chainmaker-sdk 传递依赖在编译期需显式引入 protobuf 以解析 TxResponse -->
@@ -131,7 +140,37 @@
             <artifactId>protobuf-java</artifactId>
             <version>3.21.12</version>
         </dependency>
+        <dependency>
+            <groupId>org.fisco-bcos.java-sdk</groupId><artifactId>fisco-bcos-java-sdk</artifactId><version>${fisco.version}</version>
+            <exclusions>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk15on</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk15on</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcutil-jdk15on</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId><artifactId>bcprov-jdk18on</artifactId><version>${trace.bouncycastle.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>${trace.bouncycastle.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId><artifactId>bcutil-jdk18on</artifactId><version>${trace.bouncycastle.version}</version>
+        </dependency>
     </dependencies>
+
+    <profiles>
+        <!-- 新JDK除检查Java 8语法，也限制主代码和测试只能引用Java 8标准库API。 -->
+        <profile>
+            <id>java8-api-on-newer-jdk</id>
+            <activation>
+                <jdk>[9,)</jdk>
+            </activation>
+            <properties>
+                <maven.compiler.release>8</maven.compiler.release>
+            </properties>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>

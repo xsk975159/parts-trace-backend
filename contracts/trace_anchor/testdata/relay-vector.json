@@ -1,0 +1,16 @@
+{
+	"arguments":{
+		"business_id":"42",
+		"business_type":"trace_event",
+		"data_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"issued_at":"1700000000",
+		"object_cid":"QmTestContentIdentifier",
+		"parts_did":"did:industrial:part:test:01234567890123456789012345678901",
+		"signature":"D1HEtUCFEgruPDodbpTldwxQ46dtEt0JfJH6bIOubM+RPtDOARXu++8J/xIhUaGTPsTZz+mh19DVaHf7kiv7Ois5TMTFF12+z2xdgRMEwV/ub4ele119pt1cFb8spPkqyWypi1bFaY/MKWOA2KrbmM9eW+yS8WJV8kBdt+SsNG1Ebo8Ho2boYs7LUgv/PGBC4NsyIq3CozH8uKz0/G7Sxxsx4TNA7YN+aprPrbu3HHvIhAI4bR/vewpubevizNyRtT3dDCuliNrF4qt9Q0WlAPBe+kMpBimbB+WJdO/h+fU/hdslQj7q7mW+SJxzMN6cKRoxkdCiQO4yZ+pOBKEuWw==",
+		"source_block_height":"123",
+		"source_chain_id":"sub-production",
+		"source_tx_hash":"source-tx-001",
+		"target_chain_id":"main-regulator"
+	},
+	"publicKey":"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoBp3Q/RyUcUtCfIanug5b/fTKVKP0DRz+hqxKCfbTNa13TNb5RurhJ5PCSmD1B4IORyZc34hJRZikiAhzatiAOXuJFfR+PjC02fKMEBuudVG62bp+dSsIy6NTpnbQadJZmfpcXAQIuIa216aeCRMyboN8fmah/WbFxq0ywYhWusrGiYTKWKNrF2D7VGzxcv0AdmeAtQ2BPy8y3UrS78v4Gh501M4Y850zMOuqAwY3UPoP8zP89dOew2ay03xNRaS7ZZClub4RSjbFQkm0PrCO+ugkE3Bh96MF0dlUSAzgY8+yH0yaZRwPyCsZS2hF8gTT51UZ3K9XiKlTks1rcLGBQIDAQAB"
+}

@@ -36,6 +36,8 @@ public class UserServiceImpl implements UserService {
     @Autowired
     private SysUserMapper userMapper;
 
+    @Autowired private com.kewei.parts.security.CurrentActor actor;
+
     @Autowired
     private SysUserDidMapper userDidMapper;
 
@@ -50,6 +52,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void register(UserRegisterDTO registerDTO) {
+        if (!java.util.Arrays.asList("normal", "supply_chain").contains(registerDTO.getUserType()))
+            throw new BusinessException("注册时不能指定管理或业务角色");
         if (!registerDTO.getPassword().equals(registerDTO.getConfirmPassword())) {
             throw new BusinessException("两次密码输入不一致");
         }
@@ -108,7 +112,7 @@ public class UserServiceImpl implements UserService {
         user.setLastLoginTime(new Date());
         userMapper.updateById(user);
 
-        String accessToken = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getUserType());
+        String accessToken = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getUserType(), user.getPassword());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId(), user.getUsername());
 
         UserLoginVO loginVO = new UserLoginVO();
@@ -146,11 +150,23 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateUserInfo(Long userId, UserInfoVO userInfoVO) {
+        actor.requireSelfOrAdmin(userId);
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
         }
 
+        boolean changesPrivilege = (userInfoVO.getUserType() != null && !userInfoVO.getUserType().equals(user.getUserType()))
+                || (userInfoVO.getStatus() != null && !userInfoVO.getStatus().equals(user.getStatus()));
+        if (changesPrivilege && !actor.isAdmin()) throw new BusinessException(ResultCode.FORBIDDEN);
+        if (userInfoVO.getStatus() != null && userInfoVO.getStatus() != 0 && userInfoVO.getStatus() != 1)
+            throw new BusinessException("账户状态不合法");
+        if (userInfoVO.getUserType() != null && !java.util.Arrays.asList("normal", "supply_chain", "regulator", "admin", "manufacturer", "quality", "logistics", "viewer").contains(userInfoVO.getUserType()))
+            throw new BusinessException("账户类型不合法");
+        if (userInfoVO.getOrganization()!=null && !java.util.Objects.equals(userInfoVO.getOrganization(),user.getOrganization())) {
+            if(!actor.isAdmin()) throw new BusinessException(ResultCode.FORBIDDEN);
+            user.setOrganization(userInfoVO.getOrganization());
+        }
         if (userInfoVO.getRealName() != null) user.setRealName(userInfoVO.getRealName());
         if (userInfoVO.getEmail() != null) user.setEmail(userInfoVO.getEmail());
         if (userInfoVO.getPhone() != null) user.setPhone(userInfoVO.getPhone());
@@ -167,6 +183,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void changePassword(Long userId, String oldPassword, String newPassword) {
+        actor.requireSelfOrAdmin(userId);
+        if (newPassword == null || newPassword.length() < 8 || newPassword.length() > 72) throw new BusinessException("新密码须为8至72个字符");
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
@@ -186,6 +204,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateUserStatus(Long userId, Integer status) {
+        if(status==null || (status!=0 && status!=1)) throw new BusinessException("账户状态不合法");
+        actor.requireRoles("admin");
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);
@@ -201,6 +221,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteUser(Long userId) {
+        actor.requireRoles("admin");
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException(ResultCode.USER_NOT_FOUND);

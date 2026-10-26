@@ -30,6 +30,8 @@ public interface VerifiableCredentialService {
      */
     VerifiableCredential issueComprehensiveCredential(Long partsId);
 
+    VerifiableCredential issueUnitComprehensiveCredential(Long unitId);
+
     /**
      * 验证凭证
      */

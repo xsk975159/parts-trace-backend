@@ -20,6 +20,9 @@ public class DidUtil {
     @Value("${did.method}")
     private String didMethod;
 
+    @Value("${did.service-endpoint:http://localhost:8080/api/trace}")
+    private String serviceEndpoint;
+
     @Value("${did.chain-id}")
     private String chainId;
 
@@ -51,12 +54,11 @@ public class DidUtil {
         Map<String, Object> service = new HashMap<>();
         service.put("id", did + "#service-1");
         service.put("type", "PartsTraceService");
-        service.put("serviceEndpoint", "https://parts-trace.example.com");
+        service.put("serviceEndpoint", serviceEndpoint);
         didDoc.put("service", new Object[]{service});
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("userId", userId);
-        metadata.put("username", username);
+
         metadata.put("created", System.currentTimeMillis());
         didDoc.put("metadata", metadata);
 
@@ -93,10 +95,11 @@ public class DidUtil {
         return did.matches("^did:industrial:part:[a-zA-Z0-9_-]+:[a-f0-9]{32}$");
     }
 
-    public String sha256Hex(String value) {
+    public String sha256Hex(String value) { return sha256Hex(value.getBytes(StandardCharsets.UTF_8)); }
+    public String sha256Hex(byte[] value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = digest.digest(value);
             StringBuilder hex = new StringBuilder();
             for (byte b : hash) {
                 String s = Integer.toHexString(b & 0xff);

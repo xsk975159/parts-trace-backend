@@ -3,18 +3,26 @@
 # 注意：sdk_config.yml 内含证书路径与敏感信息，请勿提交到 Git。
 
 chain_client:
-  # 与链上 chain-id、application.yml 中 CHAINMAKER_CHAIN_ID 一致
+  # 与节点实际物理链ID及对应MAIN/PRODUCTION/QUALITY/LOGISTICS_CHAIN_ID一致
   chain_id: chain1
   org_id: wx-org1.chainmaker.org
+
+  auth_type: permissionedWithCert
+  # 传输身份与交易签名身份分别配置；使用部署环境中获准的固定用户。
+  # 建议使用绝对路径；软件PEM私钥会只在内存中规范为PKCS8，保留EC/SM2曲线。
+  user_key_file_path: "/absolute/path/to/user.tls.key"
+  user_crt_file_path: "/absolute/path/to/user.tls.crt"
+  user_sign_key_file_path: "/absolute/path/to/user.sign.key"
+  user_sign_crt_file_path: "/absolute/path/to/user.sign.crt"
 
   # 示例：单节点调试（正式环境为多个 - hosts）
   nodes:
     - node_addr: "127.0.0.1:12301"
       conn_cnt: 10
       enable_tls: true
-      trust_root_items:
-        - org_id: wx-org1.chainmaker.org
-          root: "../crypto/wx-org1.chainmaker.org/ca/wx-org1.chainmaker.org.ca.crt"
+      tls_host_name: "chainmaker.org"
+      trust_root_paths:
+        - "/absolute/path/to/ca.crt"
 
   archive:
     type: ""
@@ -22,8 +30,7 @@ chain_client:
 
   rpc_client:
     max_receive_message_size: 200
-    max_send_message_size: 200
 
-# 用户私钥等通常通过 UserContract 构造时传入，此处仅保留节点连接说明。
-# 完整模板请以长安链官方文档「Java SDK 配置说明」为准：
+# 节点地址、TLS主机名、组织编码及证书必须替换为实际部署值。
+# 其他高级选项请以长安链官方文档「Java SDK 配置说明」为准：
 # https://docs.chainmaker.org.cn/
