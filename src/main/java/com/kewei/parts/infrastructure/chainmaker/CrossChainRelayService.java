@@ -15,6 +15,8 @@ public class CrossChainRelayService {
     @Autowired private com.kewei.parts.infrastructure.chain.ChainSdkRouter sdkRouter;
     @Autowired private CrossChainRecordMapper mapper;
     @Value("${parts.trace.storage.chain-mode:db}") private String mode;
+    @Value("${relay.confirmation.validator-only:false}") private boolean validatorOnly;
+    @Autowired(required=false) private com.kewei.parts.infrastructure.confirmation.RelayConfirmationService confirmation;
     public void relayToMasterChain(CrossChainAnchorPayload p) {
         if(p.getPartsDid()==null || p.getPartsDid().isEmpty()) throw new IllegalArgumentException("跨链任务缺少主体DID");
         CrossChainRecord record=new CrossChainRecord();record.setSourceChainId(p.getSourceChainId());record.setSourceTxHash(p.getSourceTxHash());
@@ -31,7 +33,7 @@ public class CrossChainRelayService {
     }
     @Scheduled(fixedDelayString="${chainmaker.relay-interval-ms:10000}")
     public void processPending() {
-        if(!com.kewei.parts.infrastructure.chain.ChainModes.isReal(mode)) return;
+        if(validatorOnly || !com.kewei.parts.infrastructure.chain.ChainModes.isReal(mode)) return;
         List<CrossChainRecord> records=mapper.selectList(new LambdaQueryWrapper<CrossChainRecord>().in(CrossChainRecord::getStatus,0,-1,3)
             .lt(CrossChainRecord::getAttempts,10).and(w->w.isNull(CrossChainRecord::getNextRetryAt).or().le(CrossChainRecord::getNextRetryAt,new Date()))
             .orderByAsc(CrossChainRecord::getId).last("LIMIT 50"));
@@ -39,12 +41,15 @@ public class CrossChainRelayService {
             if(mapper.claim(record.getId())!=1) continue;
             record.setAttempts(record.getAttempts()+1);
             try {
-                ChainStorageAdapter.StoreChainResult receipt=sdkRouter.relay(CrossChainAnchorPayload.builder()
+                CrossChainAnchorPayload payload=CrossChainAnchorPayload.builder()
                     .sourceChainId(record.getSourceChainId()).sourceTxHash(record.getSourceTxHash()).sourceBlockHeight(record.getSourceBlockHeight())
-                    .businessType(record.getBusinessType()).businessId(record.getBusinessId()).partsDid(record.getPartsDid()).dataHash(record.getDataHash()).objectCid(record.getObjectCid()).build());
+                    .businessType(record.getBusinessType()).businessId(record.getBusinessId()).partsDid(record.getPartsDid()).dataHash(record.getDataHash()).objectCid(record.getObjectCid()).build();
+                ChainStorageAdapter.StoreChainResult receipt=confirmation==null?sdkRouter.relay(payload):sdkRouter.relayConfirmed(confirmation.confirm(record.getId(),payload));
+                if(confirmation!=null)confirmation.committed(record.getId());
                 record.setTargetTxHash(receipt.getTxId());record.setTargetBlockHeight(receipt.getBlockHeight());record.setRelayTime(new Date());
                 record.setStatus(1);record.setLastError("");
             } catch(Exception e) {
+                if(confirmation!=null)confirmation.failed(record.getId(),e);
                 record.setStatus(-1);String message=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
                 record.setLastError(message.substring(0,Math.min(message.length(),1000)));
                 record.setNextRetryAt(new Date(System.currentTimeMillis()+Math.min(300000L,10000L*(1L<<Math.min(record.getAttempts(),5)))));

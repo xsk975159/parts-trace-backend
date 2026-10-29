@@ -37,6 +37,8 @@ public final class FiscoContractDeployer {
         private Map<String, String> relayPublicKeys = new LinkedHashMap<>();
         private String binary = "classpath:fisco/TraceAnchor.bin";
         private String smBinary;
+        private String committeeVersion;
+        private Map<String,com.kewei.parts.infrastructure.confirmation.RelayConfirmationProperties.Member> committeeMembers = new TreeMap<>();
     }
 
     public static void main(String[] args) throws Exception {
@@ -44,6 +46,7 @@ public final class FiscoContractDeployer {
             throw new IllegalArgumentException("用法：FiscoContractDeployer manifest.json [--deploy]；默认只检查连接与部署参数");
         Manifest manifest = JSON.parseObject(new String(Files.readAllBytes(Paths.get(args[0])), StandardCharsets.UTF_8), Manifest.class);
         List<Object> constructor = constructorArguments(manifest);
+        List<Object> committee = committeeArguments(manifest);
         ChainNetworkProperties.Network network = new ChainNetworkProperties.Network();
         network.setSdkConfig(manifest.sdkConfig);
         network.setGroup(manifest.group);
@@ -68,6 +71,13 @@ public final class FiscoContractDeployer {
             TransactionResponse response = connection.deploy(binary, constructor);
             validateDeployment(response, connection.account());
             String address = response.getContractAddress();
+            if(committee!=null) {
+                try {
+                    TransactionResponse configured=connection.invokeAt(address,"configure_relay_committee",committee);
+                    if(configured==null || configured.getReturnCode()!=0 || configured.getTransactionReceipt()==null || !configured.getTransactionReceipt().isStatusOK())
+                        throw new IllegalStateException("委员会配置未取得成功回执");
+                } catch(Exception error) {throw new IllegalStateException("合约已部署于"+address+"，委员会配置未完成；请核查该地址，勿重复部署",error);}
+            }
             CallResponse info = connection.queryAt(address, "contract_info", Collections.emptyList());
             if (info == null || info.getReturnCode() != 0 || info.getReturnObject() == null
                     || !info.getReturnObject().equals(Arrays.asList("parts-trace-anchor/v2", manifest.localChainCode)))
@@ -126,6 +136,26 @@ public final class FiscoContractDeployer {
     private static byte[] unsigned(BigInteger number) {
         byte[] bytes = number.toByteArray();
         return bytes[0] == 0 ? Arrays.copyOfRange(bytes, 1, bytes.length) : bytes;
+    }
+    public static List<Object> committeeArguments(Manifest manifest) throws Exception {
+        if(manifest.committeeMembers==null)throw new IllegalArgumentException("committeeMembers不能为null");
+        if(manifest.committeeMembers.isEmpty()) {
+            if(!blank(manifest.committeeVersion))throw new IllegalArgumentException("已指定委员会版本但没有成员");
+            return null;
+        }
+        int count=manifest.committeeMembers.size();
+        if(!"1".equals(manifest.committeeVersion) || count<4 || count>10 || (count-1)%3!=0)throw new IllegalArgumentException("首次部署委员会版本须为1，成员数须为4、7或10");
+        List<String> ids=new ArrayList<>(),orgs=new ArrayList<>();List<byte[]> moduli=new ArrayList<>(),exponents=new ArrayList<>();
+        Set<String> seenKeys=new HashSet<>(),seenOrgs=new HashSet<>();
+        for(Map.Entry<String,com.kewei.parts.infrastructure.confirmation.RelayConfirmationProperties.Member> entry:new TreeMap<>(manifest.committeeMembers).entrySet()) {
+            com.kewei.parts.infrastructure.confirmation.RelayConfirmationProperties.Member member=entry.getValue();
+            if(!entry.getKey().matches("[a-zA-Z0-9_-]{1,64}") || member==null || member.getOrganization()==null
+                    || !member.getOrganization().matches("[a-zA-Z0-9_-]{1,64}") || !seenOrgs.add(member.getOrganization()))throw new IllegalArgumentException("委员会机构非法或重复");
+            RSAPublicKey key=com.kewei.parts.infrastructure.confirmation.RelayConfirmationProperties.publicKey(member.getPublicKey());
+            if(!seenKeys.add(Base64.getEncoder().encodeToString(key.getEncoded())))throw new IllegalArgumentException("委员会公钥重复");
+            ids.add(entry.getKey());orgs.add(member.getOrganization());moduli.add(unsigned(key.getModulus()));exponents.add(unsigned(key.getPublicExponent()));
+        }
+        return Arrays.asList(manifest.committeeVersion,ids,orgs,moduli,exponents);
     }
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }
 }

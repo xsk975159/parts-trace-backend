@@ -1,0 +1,171 @@
+name: parts-trace-heterogeneous
+
+x-chainmaker: &chainmaker
+  image: parts-trace/chainmaker:2.3.10
+  build:
+    context: ../..
+    dockerfile: deploy/heterogeneous/Dockerfile.chainmaker
+  platform: linux/amd64
+  restart: unless-stopped
+  working_dir: /chainmaker-go/bin
+  stop_grace_period: 45s
+  command: ["./chainmaker", "start", "-c", "/state/cm/node1/chainmaker.yml"]
+
+x-vm: &vm
+  image: chainmakerofficial/chainmaker-vm-engine:v2.3.9
+  platform: linux/amd64
+  restart: unless-stopped
+  environment: &vm-environment
+    CHAIN_RPC_PROTOCOL: "1"
+    CHAIN_HOST: "0.0.0.0"
+    CHAIN_RPC_PORT: "22351"
+    SANDBOX_RPC_PORT: "32351"
+    MAX_SEND_MSG_SIZE: "100"
+    MAX_RECV_MSG_SIZE: "100"
+    MAX_CONN_TIMEOUT: "10"
+    MAX_ORIGINAL_PROCESS_NUM: "8"
+    DOCKERVM_CONTRACT_ENGINE_LOG_LEVEL: "INFO"
+    DOCKERVM_SANDBOX_LOG_LEVEL: "INFO"
+    DOCKERVM_LOG_IN_CONSOLE: "true"
+    CGROUP_DISABLE: "true"
+  sysctls:
+    kernel.shmmax: "0"
+    kernel.shmall: "0"
+    kernel.msgmax: "0"
+    kernel.msgmnb: "0"
+    kernel.msgmni: "0"
+  stop_grace_period: 30s
+
+x-fisco: &fisco
+  image: parts-trace/fisco-bcos:3.16.3
+  build:
+    context: ../..
+    dockerfile: deploy/heterogeneous/Dockerfile.fisco
+  platform: linux/amd64
+  restart: unless-stopped
+  stop_grace_period: 45s
+  volumes: ["state:/state"]
+
+services:
+  prepare:
+    image: parts-trace/chain-bootstrap:1.0
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: deploy/heterogeneous/Dockerfile
+    command: ["prepare"]
+    profiles: ["tools"]
+    volumes: ["state:/state"]
+    networks: [chains]
+  deploy:
+    image: parts-trace/chain-bootstrap:1.0
+    platform: linux/amd64
+    command: ["deploy"]
+    profiles: ["tools"]
+    volumes: ["state:/state", "./runtime/sdk:/export"]
+    networks: [chains]
+  verify:
+    image: parts-trace/chain-bootstrap:1.0
+    platform: linux/amd64
+    command: ["verify"]
+    profiles: ["tools"]
+    volumes: ["state:/state", "./runtime/sdk:/export"]
+    networks: [chains]
+
+  cm-node1:
+    <<: *chainmaker
+    depends_on: [cm-vm1]
+    ports: ["127.0.0.1:12301:12301"]
+    volumes: ["state:/state:ro", "cm1-data:/data", "cm1-vm:/vmdata", "cm1-log:/log"]
+    networks: [chains]
+  cm-node2:
+    <<: *chainmaker
+    command: ["./chainmaker", "start", "-c", "/state/cm/node2/chainmaker.yml"]
+    depends_on: [cm-vm2]
+    volumes: ["state:/state:ro", "cm2-data:/data", "cm2-vm:/vmdata", "cm2-log:/log"]
+    networks: [chains]
+  cm-node3:
+    <<: *chainmaker
+    command: ["./chainmaker", "start", "-c", "/state/cm/node3/chainmaker.yml"]
+    depends_on: [cm-vm3]
+    volumes: ["state:/state:ro", "cm3-data:/data", "cm3-vm:/vmdata", "cm3-log:/log"]
+    networks: [chains]
+  cm-node4:
+    <<: *chainmaker
+    command: ["./chainmaker", "start", "-c", "/state/cm/node4/chainmaker.yml"]
+    depends_on: [cm-vm4]
+    volumes: ["state:/state:ro", "cm4-data:/data", "cm4-vm:/vmdata", "cm4-log:/log"]
+    networks: [chains]
+  cm-vm1:
+    <<: *vm
+    environment:
+      <<: *vm-environment
+      CHAIN_HOST: cm-node1
+    volumes: ["cm1-vm:/mount", "cm1-log:/log"]
+    networks: [chains]
+  cm-vm2:
+    <<: *vm
+    environment:
+      <<: *vm-environment
+      CHAIN_HOST: cm-node2
+    volumes: ["cm2-vm:/mount", "cm2-log:/log"]
+    networks: [chains]
+  cm-vm3:
+    <<: *vm
+    environment:
+      <<: *vm-environment
+      CHAIN_HOST: cm-node3
+    volumes: ["cm3-vm:/mount", "cm3-log:/log"]
+    networks: [chains]
+  cm-vm4:
+    <<: *vm
+    environment:
+      <<: *vm-environment
+      CHAIN_HOST: cm-node4
+    volumes: ["cm4-vm:/mount", "cm4-log:/log"]
+    networks: [chains]
+
+  fisco-node1:
+    <<: *fisco
+    working_dir: /state/fisco/nodes/127.0.0.1/node0
+    command: ["-c", "config.ini", "-g", "config.genesis"]
+    ports: ["127.0.0.1:20200:20200"]
+    networks:
+      chains: {ipv4_address: 172.29.67.31}
+  fisco-node2:
+    <<: *fisco
+    working_dir: /state/fisco/nodes/127.0.0.1/node1
+    command: ["-c", "config.ini", "-g", "config.genesis"]
+    networks:
+      chains: {ipv4_address: 172.29.67.32}
+  fisco-node3:
+    <<: *fisco
+    working_dir: /state/fisco/nodes/127.0.0.1/node2
+    command: ["-c", "config.ini", "-g", "config.genesis"]
+    networks:
+      chains: {ipv4_address: 172.29.67.33}
+  fisco-node4:
+    <<: *fisco
+    working_dir: /state/fisco/nodes/127.0.0.1/node3
+    command: ["-c", "config.ini", "-g", "config.genesis"]
+    networks:
+      chains: {ipv4_address: 172.29.67.34}
+
+networks:
+  chains:
+    ipam:
+      config: [{subnet: 172.29.67.0/24}]
+volumes:
+  state:
+  cm1-data:
+  cm2-data:
+  cm3-data:
+  cm4-data:
+  cm1-vm:
+  cm2-vm:
+  cm3-vm:
+  cm4-vm:
+  cm1-log:
+  cm2-log:
+  cm3-log:
+  cm4-log:

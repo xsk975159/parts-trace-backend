@@ -37,6 +37,17 @@ public class FiscoConnection implements AutoCloseable {
     public CallResponse queryAt(String deployedAddress, String method, List<Object> arguments) throws Exception {
         return transactions.sendCall(account(), deployedAddress, abi, method, arguments);
     }
+    public TransactionResponse invokeAt(String deployedAddress, String method, List<Object> arguments) throws Exception {
+        return transactions.sendTransactionAndGetResponse(deployedAddress, abi, method, arguments);
+    }
+    public org.fisco.bcos.sdk.v3.model.TransactionReceipt receipt(String hash) {
+        org.fisco.bcos.sdk.v3.client.protocol.response.BcosTransactionReceipt response=client.getTransactionReceipt(hash,false);
+        return response==null?null:response.getTransactionReceipt();
+    }
+    public String encodedInput(String method,List<Object> arguments) throws Exception {
+        byte[] bytes=new org.fisco.bcos.sdk.v3.codec.ContractCodec(client.getCryptoSuite(),false).encodeMethod(abi,method,arguments);
+        StringBuilder result=new StringBuilder("0x");for(byte value:bytes)result.append(String.format("%02x",value&255));return result.toString();
+    }
 
     public int cryptoType() { return client.getCryptoSuite().getCryptoTypeConfig(); }
 

@@ -31,6 +31,7 @@ public class CrossChainController {
 
     @Autowired
     private CrossChainRecordMapper crossChainRecordMapper;
+    @Autowired(required=false) private com.kewei.parts.infrastructure.confirmation.RelayConfirmationService confirmation;
 
     @GetMapping
     public Result<Map<String, Object>> crossChainOverview(@RequestParam(required = false) String did) {
@@ -49,6 +50,12 @@ public class CrossChainController {
         Map<String, Object> result = new HashMap<>();
         result.put("chains", chains);
         result.put("records", records);
+        result.put("confirmation",confirmation==null?java.util.Collections.singletonMap("enabled",false):confirmation.overview());
+        if(confirmation!=null) {
+            java.util.List<Long> ids=new java.util.ArrayList<>();for(CrossChainRecord record:records)ids.add(record.getId());
+            java.util.Map<Long,com.kewei.parts.infrastructure.confirmation.RelayConfirmation> summaries=confirmation.summaries(ids);
+            for(CrossChainRecord record:records)record.setConfirmation(summaries.get(record.getId()));
+        }
         return Result.success(result);
     }
 }

@@ -24,6 +24,8 @@ public class ChainNetworkProperties {
 
     @Value("${parts.trace.storage.chain-mode:db}")
     private String storageMode = "db";
+    @Value("${relay.confirmation.validator-only:false}")
+    private boolean validatorOnly;
 
     @Autowired private Environment environment;
 
@@ -89,7 +91,7 @@ public class ChainNetworkProperties {
                     throw new IllegalArgumentException("FISCO BCOS须配置固定交易账户expected-account：" + code);
             }
         }
-        if (isRealMode() && blank(relayPrivateKey)) throw new IllegalArgumentException("真实模式缺少RELAY_PRIVATE_KEY");
+        if (isRealMode() && !validatorOnly && blank(relayPrivateKey)) throw new IllegalArgumentException("真实模式缺少RELAY_PRIVATE_KEY");
     }
 
     private static boolean blank(String value) { return value == null || value.trim().isEmpty(); }

@@ -19,3 +19,8 @@ contracts/fisco/node_modules/
 contracts/fisco/artifacts/
 src/main/resources/fisco/*.toml
 !src/main/resources/fisco/*.toml.example
+src/main/resources/confirmation/*.yml
+src/main/resources/confirmation/*.yaml
+deploy/heterogeneous/runtime/
+deploy/heterogeneous/assets/
+deploy/heterogeneous/vendor/*.tar.gz

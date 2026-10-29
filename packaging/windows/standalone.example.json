@@ -1,0 +1,8 @@
+{
+  "serverAddress": "127.0.0.1",
+  "serverPort": 18080,
+  "databasePort": 0,
+  "chainMode": "db",
+  "objectMode": "db",
+  "additionalConfig": ""
+}

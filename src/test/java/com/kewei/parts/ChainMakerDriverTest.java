@@ -9,6 +9,9 @@ import org.chainmaker.pb.common.ResultOuterClass.*;
 import org.chainmaker.sdk.ChainClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
+import java.nio.file.Files;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.test.util.ReflectionTestUtils;
 import java.util.*;
@@ -23,11 +26,65 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ChainMakerDriverTest {
+    @TempDir Path certificateDirectory;
+    @Test void tlsTrustRootsAcceptFilesAndDirectoriesAndRejectEmptyDirectories() throws Exception {
+        byte[] certificate;
+        try (java.io.InputStream stream = getClass().getResourceAsStream("/chainmaker/public-node.crt")) {
+            certificate = org.springframework.util.StreamUtils.copyToByteArray(stream);
+        }
+        Path root = certificateDirectory.resolve("ca.crt");
+        Files.write(root, certificate);
+        org.chainmaker.sdk.config.NodeConfig node = new org.chainmaker.sdk.config.NodeConfig();
+        node.setEnableTls(true);
+        org.chainmaker.sdk.config.ChainClientConfig config = new org.chainmaker.sdk.config.ChainClientConfig();
+        config.setNodes(new org.chainmaker.sdk.config.NodeConfig[]{node});
+        node.setTrustRootPaths(new String[]{root.toString()});
+        ChainMakerKeyMaterial.prepare(config);
+        assertArrayEquals(certificate, node.getTrustRootBytes()[0]);
+        node.setTrustRootBytes(null);
+        node.setTrustRootPaths(new String[]{certificateDirectory.toString()});
+        ChainMakerKeyMaterial.prepare(config);
+        assertEquals(1, node.getTrustRootBytes().length);
+        Files.delete(root);
+        node.setTrustRootBytes(null);
+        assertThrows(IllegalArgumentException.class, () -> ChainMakerKeyMaterial.prepare(config));
+    }
+    @Test void grpcMetadataUsesCompatibleGuavaAtRuntime() {
+        io.grpc.Metadata headers = new io.grpc.Metadata();
+        io.grpc.Metadata.Key<String> key = io.grpc.Metadata.Key.of("trace-chain", io.grpc.Metadata.ASCII_STRING_MARSHALLER);
+        headers.put(key, "chain1");
+        assertEquals("chain1", headers.get(key));
+    }
+    @Test void nativeTlsRequiredByChainMakerIsPackagedAndLoadable() throws Exception {
+        io.netty.handler.ssl.OpenSsl.ensureAvailability();
+        io.netty.handler.ssl.SslContext context = io.grpc.netty.GrpcSslContexts.forClient()
+                .sslProvider(io.netty.handler.ssl.SslProvider.OPENSSL).build();
+        try { assertTrue(context.isClient()); }
+        finally { io.netty.util.ReferenceCountUtil.release(context); }
+    }
+    @Test void independentReaderChecksSourceTransactionPayloadAndBlock() throws Exception {
+        String hash=String.join("",Collections.nCopies(64,"a"));
+        com.kewei.parts.infrastructure.chainmaker.CrossChainAnchorPayload source=com.kewei.parts.infrastructure.chainmaker.CrossChainAnchorPayload.builder()
+            .sourceChainId(ChainRouter.SUB_PRODUCTION).sourceTxHash("source-tx").sourceBlockHeight(9L).businessType("trace_event").businessId(1L).dataHash(hash).partsDid("did:test:unit").objectCid("cid").build();
+        org.chainmaker.pb.common.Request.Payload.Builder payload=org.chainmaker.pb.common.Request.Payload.newBuilder().setChainId("chain1").setTxId("source-tx").setContractName("trace_anchor").setMethod("save_anchor");
+        Map<String,String> args=new LinkedHashMap<>();args.put("business_type","trace_event");args.put("business_id","1");args.put("data_hash",hash);args.put("parts_did","did:test:unit");args.put("object_cid","cid");
+        for(Map.Entry<String,String> entry:args.entrySet())payload.addParameters(org.chainmaker.pb.common.Request.KeyValuePair.newBuilder().setKey(entry.getKey()).setValue(ByteString.copyFromUtf8(entry.getValue())));
+        org.chainmaker.pb.common.ChainmakerTransaction.Transaction.Builder tx=org.chainmaker.pb.common.ChainmakerTransaction.Transaction.newBuilder().setPayload(payload)
+            .setResult(org.chainmaker.pb.common.ResultOuterClass.Result.newBuilder().setCode(TxStatusCode.SUCCESS).setContractResult(ContractResult.newBuilder().setCode(0)));
+        when(client.getChainId()).thenReturn("chain1");
+        when(client.getTxByTxId(anyString(),anyLong())).thenReturn(org.chainmaker.pb.common.ChainmakerTransaction.TransactionInfo.newBuilder().setBlockHeight(9).setTransaction(tx).build());
+        driver.verifyAnchorTransaction(ChainRouter.SUB_PRODUCTION,source);
+        tx.setPayload(payload.setMethod("append_vc"));when(client.getTxByTxId(anyString(),anyLong())).thenReturn(org.chainmaker.pb.common.ChainmakerTransaction.TransactionInfo.newBuilder().setBlockHeight(9).setTransaction(tx).build());
+        assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_PRODUCTION,source));
+        tx.setPayload(payload.setMethod("save_anchor"));when(client.getTxByTxId(anyString(),anyLong())).thenReturn(org.chainmaker.pb.common.ChainmakerTransaction.TransactionInfo.newBuilder().setBlockHeight(8).setTransaction(tx).build());
+        assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_PRODUCTION,source));
+    }
     private ChainMakerSdkInvoker driver;
+    private ChainNetworkProperties properties;
     private ChainClient client;
     private TxResponse response;
     @BeforeEach void prepare() throws Exception {
-        client=mock(ChainClient.class);driver=new ChainMakerSdkInvoker(new DefaultResourceLoader(),new ChainNetworkProperties());
+        client=mock(ChainClient.class);properties=new ChainNetworkProperties();driver=new ChainMakerSdkInvoker(new DefaultResourceLoader(),properties);
         Map<String,ChainClient> connections=new HashMap<>();connections.put(ChainRouter.SUB_PRODUCTION,client);
         ReflectionTestUtils.setField(driver,"clients",connections);
         response=TxResponse.newBuilder().setCode(TxStatusCode.SUCCESS).setTxId("confirmed-cm-tx").setTxBlockHeight(9)
@@ -46,8 +103,24 @@ class ChainMakerDriverTest {
         assertThrows(Exception.class,()->ChainMakerSdkInvoker.check(response.toBuilder().setCodeValue(1).build()));
     }
     @Test void unconfirmedReceiptCannotBecomeSuccessfulAnchor() throws Exception {
+        properties.setTimeoutMs(1);
         when(client.invokeContract(anyString(),anyString(),anyString(),anyMap(),anyLong(),anyLong())).thenReturn(response.toBuilder().setTxBlockHeight(0).build());
         assertThrows(Exception.class,()->driver.invoke(ChainRouter.SUB_PRODUCTION,"save_anchor",Collections.emptyMap()));
+    }
+    @Test void sdkResponseWithoutHeightUsesTheActualConfirmedTransaction() throws Exception {
+        when(client.getChainId()).thenReturn("chain1");
+        org.chainmaker.pb.common.Request.Payload payload=org.chainmaker.pb.common.Request.Payload.newBuilder()
+                .setChainId("chain1").setTxId("confirmed-cm-tx").setContractName("trace_anchor").setMethod("save_anchor").build();
+        org.chainmaker.pb.common.ChainmakerTransaction.Transaction tx=org.chainmaker.pb.common.ChainmakerTransaction.Transaction.newBuilder()
+                .setPayload(payload).setResult(Result.newBuilder().setCode(TxStatusCode.SUCCESS).setContractResult(ContractResult.newBuilder().setCode(0))).build();
+        when(client.getTxByTxId(eq("confirmed-cm-tx"),anyLong())).thenReturn(
+                org.chainmaker.pb.common.ChainmakerTransaction.TransactionInfo.newBuilder().setBlockHeight(12).setTransaction(tx).build());
+        when(client.invokeContract(anyString(),anyString(),anyString(),anyMap(),anyLong(),anyLong())).thenReturn(response.toBuilder().setTxBlockHeight(0).build());
+        assertEquals(Long.valueOf(12),driver.invoke(ChainRouter.SUB_PRODUCTION,"save_anchor",Collections.emptyMap()).getBlockHeight());
+        when(client.getTxByTxId(eq("confirmed-cm-tx"),anyLong())).thenReturn(
+                org.chainmaker.pb.common.ChainmakerTransaction.TransactionInfo.newBuilder().setBlockHeight(12)
+                        .setTransaction(tx.toBuilder().setPayload(payload.toBuilder().setMethod("append_vc"))).build());
+        assertThrows(org.chainmaker.sdk.ChainClientException.class,()->driver.invoke(ChainRouter.SUB_PRODUCTION,"save_anchor",Collections.emptyMap()));
     }
     @Test void otherLogicalChainCannotReuseExistingClient() {
         assertThrows(IllegalStateException.class,()->driver.query(ChainRouter.SUB_LOGISTICS,"get_anchor",Collections.emptyMap()));

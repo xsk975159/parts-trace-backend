@@ -1,0 +1,21 @@
+{
+  "network": {
+    "platform": "CHAINMAKER",
+    "sdkConfig": "file:/deploy/main/sdk_config.yml",
+    "expectedChainId": "填写实际监管链ID",
+    "contractName": "trace_anchor",
+    "group": "group0",
+    "contractAddress": "",
+    "expectedAccount": ""
+  },
+  "committee": {
+    "version": "1",
+    "threshold": 3,
+    "members": {
+      "manufacturer": {"organization": "manufacturer", "publicKey": "填写X.509-DER公钥Base64"},
+      "quality": {"organization": "quality", "publicKey": "填写X.509-DER公钥Base64"},
+      "logistics": {"organization": "logistics", "publicKey": "填写X.509-DER公钥Base64"},
+      "regulator": {"organization": "regulator", "publicKey": "填写X.509-DER公钥Base64"}
+    }
+  }
+}

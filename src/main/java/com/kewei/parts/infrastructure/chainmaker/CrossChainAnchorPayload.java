@@ -8,6 +8,7 @@ import lombok.Value;
  */
 @Value
 @Builder
+@lombok.extern.jackson.Jacksonized
 public class CrossChainAnchorPayload {
 
     Long businessId;

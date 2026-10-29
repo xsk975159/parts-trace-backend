@@ -1,0 +1,8 @@
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 libgomp1 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/heterogeneous/vendor/fisco-bcos-linux-x86_64-v3.16.3.tar.gz /tmp/fisco.tar.gz
+RUN echo '1d97a6d72a1e384b428fdefac77ff48ffbe36d21eb9b4daeba62cf56bf975ae3  /tmp/fisco.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/fisco.tar.gz -C /usr/local/bin fisco-bcos \
+    && chmod 755 /usr/local/bin/fisco-bcos && rm /tmp/fisco.tar.gz
+ENTRYPOINT ["/usr/local/bin/fisco-bcos"]

@@ -50,4 +50,20 @@ class FiscoDriverTest {
         assertEquals(FiscoBcosDriver.CROSS_FIELDS,parameters.get(0));assertArrayEquals(new byte[]{1,2,3},(byte[])parameters.get(1));
     }
     @Test void onlyFiscoNetworksAreRegisteredAndClientsClose() {assertTrue(driver.configured(ChainRouter.SUB_LOGISTICS));assertFalse(driver.configured(ChainRouter.SUB_PRODUCTION));driver.close();verify(connection).close();assertFalse(driver.configured(ChainRouter.SUB_LOGISTICS));}
+    private com.kewei.parts.infrastructure.chainmaker.CrossChainAnchorPayload source() {
+        return com.kewei.parts.infrastructure.chainmaker.CrossChainAnchorPayload.builder().sourceChainId(ChainRouter.SUB_LOGISTICS).sourceTxHash(HASH).sourceBlockHeight(123L)
+                .businessType("trace_event").businessId(1L).dataHash(DATA_HASH).objectCid("cid").partsDid("did:test:unit").build();
+    }
+    @Test void independentReaderChecksSourceReceiptAndExactAnchorCall() throws Exception {
+        receipt.setInput("0x1234");when(connection.receipt(HASH)).thenReturn(receipt);
+        when(connection.encodedInput("save_anchor",Arrays.asList("trace_event","1",DATA_HASH,"cid","did:test:unit"))).thenReturn("0x1234");
+        driver.verifyAnchorTransaction(ChainRouter.SUB_LOGISTICS,source());
+        verify(connection).receipt(HASH);receipt.setInput("0x5678");assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_LOGISTICS,source()));
+    }
+    @Test void sourceReceiptWithWrongBlockContractOrTransactionIsRejected() throws Exception {
+        receipt.setInput("0x1234");when(connection.receipt(HASH)).thenReturn(receipt);when(connection.encodedInput(anyString(),anyList())).thenReturn("0x1234");
+        receipt.setBlockNumber(BigInteger.valueOf(122));assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_LOGISTICS,source()));
+        receipt.setBlockNumber(BigInteger.valueOf(123));receipt.setTo(ACCOUNT);assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_LOGISTICS,source()));
+        receipt.setTo(ADDRESS);receipt.setTransactionHash("0x"+String.join("",Collections.nCopies(32,"ff")));assertThrows(IllegalStateException.class,()->driver.verifyAnchorTransaction(ChainRouter.SUB_LOGISTICS,source()));
+    }
 }

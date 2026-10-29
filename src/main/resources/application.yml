@@ -141,3 +141,16 @@ parts:
 
 security:
   key-encryption-key: ${KEY_ENCRYPTION_KEY:}
+
+# 多机构联合核验。成员公钥与端点通过外部YAML配置；各节点私钥分别保管。
+relay:
+  confirmation:
+    enabled: ${RELAY_CONFIRMATION_ENABLED:false}
+    validator-enabled: ${RELAY_VALIDATOR_ENABLED:false}
+    validator-only: ${RELAY_VALIDATOR_ONLY:false}
+    committee-version: ${RELAY_COMMITTEE_VERSION:1}
+    faulty-nodes: 1
+    timeout-ms: 3000
+    coordinator-public-key: ${RELAY_COORDINATOR_PUBLIC_KEY:}
+    validator-id: ${RELAY_VALIDATOR_ID:}
+    validator-private-key: ${RELAY_VALIDATOR_PRIVATE_KEY:}

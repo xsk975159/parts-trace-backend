@@ -68,7 +68,7 @@ func (t *TraceAnchorContract) configure() protogo.Response {
 		}
 	}
 	config, _ := json.Marshal(map[string]interface{}{"code": code, "orgs": orgs, "keys": keys})
-	if err := sdk.Instance.PutStateByte("config", field, config); err != nil {
+	if err := putState("config", field, config); err != nil {
 		return sdk.Error(err.Error())
 	}
 	return sdk.SuccessResponse
@@ -82,7 +82,7 @@ type configuration struct {
 
 func config() (configuration, error) {
 	var c configuration
-	raw, err := sdk.Instance.GetStateByte("config", field)
+	raw, err := getState("config", field)
 	if err != nil {
 		return c, err
 	}
@@ -117,6 +117,15 @@ func (t *TraceAnchorContract) InvokeContract(method string) protogo.Response {
 		}
 		raw, _ := json.Marshal(map[string]string{"schema": "parts-trace-anchor/v2", "chainCode": c.Code})
 		return sdk.Success(raw)
+	case "relay_policy":
+		c, err := committee()
+		if err != nil {
+			return sdk.Error(err.Error())
+		}
+		raw, _ := json.Marshal(c)
+		return sdk.Success(raw)
+	case "configure_relay_committee":
+		return t.configureRelayCommittee()
 	case "get_anchor":
 		args := sdk.Instance.GetArgs()
 		key, err := anchorKey(args)
@@ -146,12 +155,31 @@ func (t *TraceAnchorContract) InvokeContract(method string) protogo.Response {
 		return t.revokeVc()
 	case "receive_cross_anchor":
 		return t.receiveCrossAnchor()
+	case "receive_cross_anchor_quorum":
+		policy, err := committee()
+		if err != nil || policy.Threshold == 0 {
+			return sdk.Error("committee not configured")
+		}
+		return t.receiveCrossAnchor()
 	default:
 		return sdk.Error("unknown method")
 	}
 }
+
+// State names may contain DID colons or business path separators. Hash the full
+// logical key before passing it to ChainMaker, preserving namespace separation.
+func stateKey(key string) string {
+	hash := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(hash[:])
+}
+func getState(key, column string) ([]byte, error) {
+	return sdk.Instance.GetStateByte(stateKey(key), column)
+}
+func putState(key, column string, value []byte) error {
+	return sdk.Instance.PutStateByte(stateKey(key), column, value)
+}
 func read(key, column string) protogo.Response {
-	raw, err := sdk.Instance.GetStateByte(key, column)
+	raw, err := getState(key, column)
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
@@ -178,7 +206,7 @@ func (t *TraceAnchorContract) saveAnchor() protogo.Response {
 		data[name] = string(args[name])
 	}
 	raw, _ := json.Marshal(data)
-	old, err := sdk.Instance.GetStateByte(key, field)
+	old, err := getState(key, field)
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
@@ -188,7 +216,7 @@ func (t *TraceAnchorContract) saveAnchor() protogo.Response {
 		}
 		return sdk.Error("anchor identity already has different immutable content")
 	}
-	if err := sdk.Instance.PutStateByte(key, field, raw); err != nil {
+	if err := putState(key, field, raw); err != nil {
 		return sdk.Error(err.Error())
 	}
 	return sdk.SuccessResponse
@@ -216,7 +244,7 @@ func (t *TraceAnchorContract) appendVc() protogo.Response {
 		return sdk.Error("invalid vc_hash")
 	}
 	key, id := "didvc/"+string(args["parts_did"]), string(args["vc_id"])
-	old, err := sdk.Instance.GetStateByte(key, id)
+	old, err := getState(key, id)
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
@@ -230,10 +258,10 @@ func (t *TraceAnchorContract) appendVc() protogo.Response {
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
-	if err := sdk.Instance.PutStateByte("vcowner/"+string(args["parts_did"]), id, []byte(owner)); err != nil {
+	if err := putState("vcowner/"+string(args["parts_did"]), id, []byte(owner)); err != nil {
 		return sdk.Error(err.Error())
 	}
-	if err := sdk.Instance.PutStateByte(key, id, args["vc_hash"]); err != nil {
+	if err := putState(key, id, args["vc_hash"]); err != nil {
 		return sdk.Error(err.Error())
 	}
 	return sdk.SuccessResponse
@@ -244,7 +272,7 @@ func (t *TraceAnchorContract) revokeVc() protogo.Response {
 		return sdk.Error(err.Error())
 	}
 	did, id := string(args["parts_did"]), string(args["vc_id"])
-	owner, err := sdk.Instance.GetStateByte("vcowner/"+did, id)
+	owner, err := getState("vcowner/"+did, id)
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
@@ -256,10 +284,10 @@ func (t *TraceAnchorContract) revokeVc() protogo.Response {
 		return sdk.Error("only VC writer or contract creator may revoke")
 	}
 	// 撤销墓碑先于追加到达时也必须保留，迟到的追加不能复活该凭证。
-	if err := sdk.Instance.PutStateByte("vcowner/"+did, id, []byte(sender)); err != nil {
+	if err := putState("vcowner/"+did, id, []byte(sender)); err != nil {
 		return sdk.Error(err.Error())
 	}
-	if err := sdk.Instance.PutStateByte("didvc/"+did, id, []byte("0")); err != nil {
+	if err := putState("didvc/"+did, id, []byte("0")); err != nil {
 		return sdk.Error(err.Error())
 	}
 	return sdk.SuccessResponse
@@ -325,6 +353,10 @@ func (t *TraceAnchorContract) receiveCrossAnchor() protogo.Response {
 	for _, name := range []string{"source_chain_id", "source_tx_hash", "source_block_height", "business_type", "business_id", "parts_did", "data_hash", "object_cid", "target_chain_id", "issued_at"} {
 		values[name] = string(args[name])
 	}
+	policy, err := committee()
+	if err != nil {
+		return sdk.Error(err.Error())
+	}
 	if values["target_chain_id"] != c.Code || c.Keys[values["source_chain_id"]] == "" || !validHash(args["data_hash"]) || values["source_tx_hash"] == "" || len(values["source_tx_hash"]) > 256 {
 		return sdk.Error("untrusted source or invalid target/hash")
 	}
@@ -345,13 +377,31 @@ func (t *TraceAnchorContract) receiveCrossAnchor() protogo.Response {
 	if now > 1000000000000 {
 		now /= 1000
 	}
-	if err := verifyRelay(values, string(args["signature"]), c.Keys[values["source_chain_id"]], now); err != nil {
-		return sdk.Error("relay proof rejected: " + err.Error())
+	if policy.Threshold > 0 {
+		// 启用委员会后，旧的单中继方法也必须提供同样的有效联合签名，不能绕过门禁。
+		values["committee_version"] = string(args["committee_version"])
+		values["proof_type"] = "relay-quorum/v1"
+		var ids, signatures []string
+		if json.Unmarshal(args["validator_ids"], &ids) != nil || json.Unmarshal(args["validator_signatures"], &signatures) != nil {
+			return sdk.Error("invalid validator certificate")
+		}
+		if err := verifyCommittee(values, ids, signatures, policy, now); err != nil {
+			return sdk.Error(err.Error())
+		}
+		delete(values, "committee_version")
+		delete(values, "proof_type")
+	} else {
+		if len(args["committee_version"]) > 0 || len(args["validator_ids"]) > 0 {
+			return sdk.Error("committee not configured")
+		}
+		if err := verifyRelay(values, string(args["signature"]), c.Keys[values["source_chain_id"]], now); err != nil {
+			return sdk.Error("relay proof rejected: " + err.Error())
+		}
 	}
 	delete(values, "issued_at")
 	raw, _ := json.Marshal(values)
 	key := "xc/" + values["source_chain_id"] + "/" + values["source_tx_hash"]
-	old, err := sdk.Instance.GetStateByte(key, field)
+	old, err := getState(key, field)
 	if err != nil {
 		return sdk.Error(err.Error())
 	}
@@ -361,7 +411,7 @@ func (t *TraceAnchorContract) receiveCrossAnchor() protogo.Response {
 		}
 		return sdk.Error("conflicting replay for source transaction")
 	}
-	if err := sdk.Instance.PutStateByte(key, field, raw); err != nil {
+	if err := putState(key, field, raw); err != nil {
 		return sdk.Error(err.Error())
 	}
 	return sdk.SuccessResponse

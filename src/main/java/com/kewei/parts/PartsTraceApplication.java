@@ -12,7 +12,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @org.springframework.scheduling.annotation.EnableScheduling
 @SpringBootApplication
-@MapperScan({"com.kewei.parts.security", "com.kewei.parts.module.system.mapper", "com.kewei.parts.module.identity.mapper", "com.kewei.parts.module.parts.mapper", "com.kewei.parts.module.trace.mapper", "com.kewei.parts.module.anomaly.mapper"})
+@MapperScan({"com.kewei.parts.infrastructure.confirmation", "com.kewei.parts.security", "com.kewei.parts.module.system.mapper", "com.kewei.parts.module.identity.mapper", "com.kewei.parts.module.parts.mapper", "com.kewei.parts.module.trace.mapper", "com.kewei.parts.module.anomaly.mapper"})
 public class PartsTraceApplication {
 
     public static void main(String[] args) {

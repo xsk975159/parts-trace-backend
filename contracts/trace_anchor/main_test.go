@@ -2,6 +2,7 @@ package main
 
 import (
 	"chainmaker.org/chainmaker/contract-sdk-go/v2/sdk"
+	"chainmaker.org/chainmaker/protocol/v2"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -24,9 +25,15 @@ type memorySDK struct {
 
 func (m *memorySDK) GetArgs() map[string][]byte { return m.args }
 func (m *memorySDK) GetStateByte(key, field string) ([]byte, error) {
+	if err := protocol.CheckKeyFieldStr(key, field); err != nil {
+		return nil, err
+	}
 	return m.state[key+"|"+field], nil
 }
 func (m *memorySDK) PutStateByte(key, field string, value []byte) error {
+	if err := protocol.CheckKeyFieldStr(key, field); err != nil {
+		return err
+	}
 	m.state[key+"|"+field] = append([]byte(nil), value...)
 	return nil
 }
@@ -215,5 +222,16 @@ func TestConflictingReplayWithFreshValidSignatureRejected(t *testing.T) {
 	response := c.InvokeContract("receive_cross_anchor")
 	if response.Status == 0 || !strings.Contains(response.Message, "conflicting replay") {
 		t.Fatal("validly signed conflicting replay not rejected:", response.Message)
+	}
+}
+
+func TestStateKeyUsesChainMakerAllowedCharacters(t *testing.T) {
+	for _, key := range []string{"anchor/docker_smoke/1", "didvc/did:parts:one", "xc/sub-production/tx", "vcowner/did:parts:one"} {
+		if err := protocol.CheckKeyFieldStr(stateKey(key), field); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if stateKey("a/b") == stateKey("a_b") {
+		t.Fatal("logical keys collided")
 	}
 }

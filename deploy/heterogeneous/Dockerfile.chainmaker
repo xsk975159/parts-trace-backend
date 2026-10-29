@@ -1,0 +1,10 @@
+FROM chainmakerofficial/chainmaker:v2.3.10 AS upstream
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=upstream /chainmaker-go/bin/chainmaker /chainmaker-go/bin/chainmaker
+COPY --from=upstream /usr/lib/libwasmer.so /usr/local/lib/libwasmer.so
+COPY deploy/heterogeneous/vendor/FISCO-BCOS-LICENSE /usr/share/doc/parts-trace/Apache-2.0.txt
+ENV LD_LIBRARY_PATH=/usr/local/lib
+WORKDIR /chainmaker-go/bin
+CMD ["./chainmaker", "start", "-c", "/state/cm/node1/chainmaker.yml"]

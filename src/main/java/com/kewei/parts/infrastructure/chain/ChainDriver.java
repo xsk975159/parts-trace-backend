@@ -10,4 +10,5 @@ public interface ChainDriver {
     String physicalIdentity(String chainCode);
     ChainStorageAdapter.StoreChainResult invoke(String chainCode, String method, Map<String, byte[]> arguments) throws Exception;
     String query(String chainCode, String method, Map<String, byte[]> arguments) throws Exception;
+    void verifyAnchorTransaction(String chainCode, com.kewei.parts.infrastructure.chainmaker.CrossChainAnchorPayload payload) throws Exception;
 }

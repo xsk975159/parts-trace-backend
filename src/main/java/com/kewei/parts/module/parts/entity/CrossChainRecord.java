@@ -64,4 +64,7 @@ public class CrossChainRecord implements Serializable {
 
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
+
+    @TableField(exist=false)
+    private com.kewei.parts.infrastructure.confirmation.RelayConfirmation confirmation;
 }

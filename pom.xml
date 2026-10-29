@@ -32,8 +32,21 @@
         <trace.bouncycastle.version>1.78</trace.bouncycastle.version>
         <jackson-bom.version>2.14.3</jackson-bom.version>
         <gson.version>2.10.1</gson.version>
+        <guava.version>33.5.0-jre</guava.version>
+        <grpc.version>1.53.0</grpc.version>
+        <netty.version>4.1.79.Final</netty.version>
         <skipTests>false</skipTests>
+        <parts.build.directory>target</parts.build.directory>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.grpc</groupId><artifactId>grpc-bom</artifactId><version>${grpc.version}</version>
+                <type>pom</type><scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Spring Boot Web -->
@@ -140,6 +153,14 @@
             <artifactId>protobuf-java</artifactId>
             <version>3.21.12</version>
         </dependency>
+        <!-- SDK的旧protobuf-util传递Guava 18，缺少gRPC Metadata需要的方法。 -->
+        <dependency>
+            <groupId>com.google.guava</groupId><artifactId>guava</artifactId><version>${guava.version}</version>
+        </dependency>
+        <!-- 长安链SDK显式使用OpenSSL；随包提供Windows/Linux本机库及配套Java类。 -->
+        <dependency>
+            <groupId>io.netty</groupId><artifactId>netty-tcnative-boringssl-static</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.fisco-bcos.java-sdk</groupId><artifactId>fisco-bcos-java-sdk</artifactId><version>${fisco.version}</version>
             <exclusions>
@@ -160,6 +181,23 @@
     </dependencies>
 
     <profiles>
+        <profile>
+            <id>windows-package</id>
+            <build>
+                <resources>
+                    <resource><directory>src/main/resources</directory></resource>
+                    <resource>
+                        <directory>scripts</directory>
+                        <targetPath>desktop</targetPath>
+                        <includes><include>check-schema.sql</include></includes>
+                    </resource>
+                    <resource>
+                        <directory>../parts-trace-frontend/dist</directory>
+                        <targetPath>static</targetPath>
+                    </resource>
+                </resources>
+            </build>
+        </profile>
         <!-- 新JDK除检查Java 8语法，也限制主代码和测试只能引用Java 8标准库API。 -->
         <profile>
             <id>java8-api-on-newer-jdk</id>
@@ -173,6 +211,7 @@
     </profiles>
 
     <build>
+        <directory>${parts.build.directory}</directory>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

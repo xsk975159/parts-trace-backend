@@ -19,6 +19,7 @@ import java.util.*;
 @Component
 @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression(com.kewei.parts.infrastructure.chain.ChainModes.REAL)
 public class DurableChainStorageAdapter implements ChainStorageAdapter {
+    @Value("${relay.confirmation.validator-only:false}") private boolean validatorOnly;
     @Autowired @Qualifier("multiChainStorageAdapter") private ChainStorageAdapter delegate;
     @Autowired private ChainTaskMapper tasks;
     @Autowired private TraceEventMapper events;
@@ -51,6 +52,7 @@ public class DurableChainStorageAdapter implements ChainStorageAdapter {
 
     @Scheduled(fixedDelayString="${chainmaker.anchor-interval-ms:10000}")
     public void processPending() {
+        if(validatorOnly)return;
         List<ChainTask> pending=tasks.selectList(new LambdaQueryWrapper<ChainTask>().in(ChainTask::getStatus,0,-1,3).lt(ChainTask::getAttempts,10)
             .and(w->w.isNull(ChainTask::getNextRetryAt).or().le(ChainTask::getNextRetryAt,new Date())).orderByAsc(ChainTask::getId).last("LIMIT 50"));
         for(ChainTask task:pending) {

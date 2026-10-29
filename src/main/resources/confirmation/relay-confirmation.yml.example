@@ -1,0 +1,30 @@
+# 复制到部署目录，填写公钥和实际地址，通过spring.config.additional-location加载。
+# 协调端设RELAY_CONFIRMATION_ENABLED=true；每个验证端只配置自己的私钥。
+relay:
+  confirmation:
+    enabled: ${RELAY_CONFIRMATION_ENABLED:false}
+    validator-enabled: ${RELAY_VALIDATOR_ENABLED:false}
+    validator-only: ${RELAY_VALIDATOR_ONLY:false}
+    committee-version: ${RELAY_COMMITTEE_VERSION:1}
+    faulty-nodes: 1
+    timeout-ms: 3000
+    coordinator-public-key: ${RELAY_COORDINATOR_PUBLIC_KEY:}
+    validator-id: ${RELAY_VALIDATOR_ID:}
+    validator-private-key: ${RELAY_VALIDATOR_PRIVATE_KEY:}
+    members:
+      manufacturer:
+        organization: manufacturer
+        public-key: ${RELAY_MANUFACTURER_PUBLIC_KEY:}
+        endpoint: ${RELAY_MANUFACTURER_ENDPOINT:https://manufacturer.example/internal/relay/endorse}
+      quality:
+        organization: quality
+        public-key: ${RELAY_QUALITY_PUBLIC_KEY:}
+        endpoint: ${RELAY_QUALITY_ENDPOINT:https://quality.example/internal/relay/endorse}
+      logistics:
+        organization: logistics
+        public-key: ${RELAY_LOGISTICS_PUBLIC_KEY:}
+        endpoint: ${RELAY_LOGISTICS_ENDPOINT:https://logistics.example/internal/relay/endorse}
+      regulator:
+        organization: regulator
+        public-key: ${RELAY_REGULATOR_PUBLIC_KEY:}
+        endpoint: ${RELAY_REGULATOR_ENDPOINT:https://regulator.example/internal/relay/endorse}

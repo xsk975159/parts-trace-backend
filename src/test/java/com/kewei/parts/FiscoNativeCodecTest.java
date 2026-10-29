@@ -4,6 +4,8 @@ import com.alibaba.fastjson.*;
 import com.kewei.parts.infrastructure.chain.*;
 import com.kewei.parts.infrastructure.fisco.FiscoBcosDriver;
 import com.kewei.parts.infrastructure.fisco.FiscoContractDeployer;
+import com.kewei.parts.infrastructure.fisco.FiscoConnection;
+import com.kewei.parts.infrastructure.fisco.FiscoConnectionFactory;
 import com.kewei.parts.infrastructure.storage.*;
 import org.fisco.bcos.sdk.v3.codec.ContractCodec;
 import org.fisco.bcos.sdk.v3.crypto.CryptoSuite;
@@ -15,6 +17,33 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** 使用真正的FISCO SDK编码器，输出供本地EVM执行的调用向量。 */
 class FiscoNativeCodecTest {
+    @Test void nativeSdkEncodesQuorumAndDecodesCommitteeKeyArrays() throws Exception {
+        String abi=new String(Files.readAllBytes(Paths.get("src/main/resources/fisco/TraceAnchor.abi.json")),StandardCharsets.UTF_8);
+        JSONObject vector=JSON.parseObject(new String(Files.readAllBytes(Paths.get("contracts/trace_anchor/testdata/quorum-vector.json")),StandardCharsets.UTF_8));
+        FiscoContractDeployer.Manifest manifest=new FiscoContractDeployer.Manifest();manifest.setCommitteeVersion("1");
+        JSONObject memberJson=vector.getJSONObject("policy").getJSONObject("members");
+        for(String id:memberJson.keySet())manifest.getCommitteeMembers().put(id,memberJson.getObject(id,com.kewei.parts.infrastructure.confirmation.RelayConfirmationProperties.Member.class));
+        List<Object> committee=FiscoContractDeployer.committeeArguments(manifest);ContractCodec codec=new ContractCodec(new CryptoSuite(0),false);
+        List<Object> writes=new ArrayList<>();Map<String,Object> configure=new LinkedHashMap<>();configure.put("method","configure_relay_committee");configure.put("data",hex(codec.encodeMethod(abi,"configure_relay_committee",committee)));writes.add(configure);
+        Map<String,byte[]> proof=new HashMap<>();vector.getJSONObject("arguments").forEach((k,v)->ContractArguments.put(proof,k,String.valueOf(v)));
+        List<String> ids=new ArrayList<>(new TreeSet<>(memberJson.keySet())).subList(0,3),signatures=new ArrayList<>();
+        for(String id:ids)signatures.add(vector.getJSONObject("signatures").getString(id));
+        ContractArguments.put(proof,"validator_ids",JSON.toJSONString(ids));ContractArguments.put(proof,"validator_signatures",JSON.toJSONString(signatures));
+        add(codec,abi,writes,"receive_cross_anchor_quorum",proof,null);
+        Map<String,Object> vectors=new LinkedHashMap<>();vectors.put("writes",writes);Files.write(Paths.get("target/fisco-quorum-codec-vectors.json"),JSON.toJSONBytes(vectors));
+        // 用真实SDK编码/解码与relay_policy输出相同的类型，核对bytes[]的实际对象类型。
+        String encoderAbi="[{\"type\":\"function\",\"name\":\"encode_policy\",\"inputs\":[{\"name\":\"v\",\"type\":\"string\"},{\"name\":\"t\",\"type\":\"uint256\"},{\"name\":\"i\",\"type\":\"string[]\"},{\"name\":\"o\",\"type\":\"string[]\"},{\"name\":\"n\",\"type\":\"bytes[]\"},{\"name\":\"e\",\"type\":\"bytes[]\"}],\"outputs\":[]}]";
+        List<Object> policyArguments=new ArrayList<>();policyArguments.add("1");policyArguments.add(java.math.BigInteger.valueOf(3));policyArguments.addAll(committee.subList(1,5));
+        byte[] encoded=codec.encodeMethod(encoderAbi,"encode_policy",policyArguments);
+        List<Object> decoded=codec.decodeMethodOutputAndGetObject(abi,"relay_policy",hex(Arrays.copyOfRange(encoded,4,encoded.length))).getLeft();
+        org.fisco.bcos.sdk.v3.transaction.model.dto.CallResponse response=org.mockito.Mockito.mock(org.fisco.bcos.sdk.v3.transaction.model.dto.CallResponse.class);
+        org.mockito.Mockito.when(response.getReturnCode()).thenReturn(0);org.mockito.Mockito.when(response.getReturnObject()).thenReturn(decoded);
+        FiscoConnection connection=org.mockito.Mockito.mock(FiscoConnection.class);org.mockito.Mockito.when(connection.query(org.mockito.ArgumentMatchers.eq("relay_policy"),org.mockito.ArgumentMatchers.anyList())).thenReturn(response);
+        FiscoConnectionFactory factory=org.mockito.Mockito.mock(FiscoConnectionFactory.class);org.mockito.Mockito.when(factory.connect(org.mockito.ArgumentMatchers.any())).thenReturn(connection);
+        ChainNetworkProperties properties=new ChainNetworkProperties();properties.getNetworks().clear();ChainNetworkProperties.Network network=new ChainNetworkProperties.Network();network.setPlatform(ChainPlatform.FISCO_BCOS);properties.getNetworks().put("main-regulator",network);
+        FiscoBcosDriver driver=new FiscoBcosDriver(properties,factory);driver.initialize();JSONObject actual=JSON.parseObject(driver.query("main-regulator","relay_policy",Collections.emptyMap()));
+        assertEquals("1",actual.getString("version"));assertEquals(3,actual.getIntValue("threshold"));assertEquals(memberJson,actual.getJSONObject("members"));driver.close();
+    }
     @Test void nativeSdkEncodesActualCompiledSolidityAbi() throws Exception {
         String abi=new String(Files.readAllBytes(Paths.get("src/main/resources/fisco/TraceAnchor.abi.json")),StandardCharsets.UTF_8);
         ContractCodec codec=new ContractCodec(new CryptoSuite(0),false);

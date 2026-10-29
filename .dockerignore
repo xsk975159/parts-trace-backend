@@ -1,0 +1,12 @@
+.git
+.local
+target
+logs
+deploy/heterogeneous/runtime
+contracts/fisco/node_modules
+contracts/fisco/artifacts
+contracts/trace_anchor/build
+src/main/resources/chainmaker/sdk_config.yml
+src/main/resources/fisco/*.toml
+src/main/resources/confirmation/*.yml
+src/main/resources/confirmation/*.yaml

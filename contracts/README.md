@@ -28,6 +28,8 @@ bash build.sh
 
 接收中继的主链须登记实际源链公钥。配置升级仅允许合约创建者。后端可通过统一合约名或逐链 `contract-name` 调用，须与各链部署一致。
 
+长安链合约将内部业务状态键计算为 SHA-256 十六进制摘要后存储，以满足 SDK 对状态键字符和长度的限制；业务参数、查询方法及中继签名原文保持一致。
+
 ## 2. FISCO构建与部署
 
 ```powershell
@@ -54,13 +56,20 @@ npm run compile
 | `revoke_vc` | 撤销凭证；迟到追加不能恢复已撤销凭证 |
 | `receive_cross_anchor` | 验证授权中继签名、目标链、时效与重复消息后接收摘要 |
 | `get_cross_anchor` | 读取指定源链交易的跨链记录 |
+| `relay_policy` | 读取主链委员会版本、门槛和成员公钥，未启用时门槛为0 |
+| `configure_relay_committee` | 仅创建者/所有者配置4、7或10个独立机构成员，版本须递增1 |
+| `receive_cross_anchor_quorum` | 验证不同成员的联合签名后接收跨链摘要 |
 
 跨链字段为 `source_chain_id`、`source_tx_hash`、`source_block_height`、`business_type`、`business_id`、`parts_did`、`data_hash`、`object_cid`、`target_chain_id`和 `issued_at`。字段名按字典序排列，以UTF-8逐行拼接 `名称=值\n`，执行RSA PKCS#1 v1.5 SHA-256签名。
 
 目标链接受其时间之前300秒至之后60秒的消息。相同源链交易的相同业务内容可重试；冲突内容即使有新签名仍被拒绝。授权中继模型不提供源链轻客户端共识或交易包含证明。
 
+可选委员会模式默认关闭，启用后旧单签名入口不能绕过检查。联合签名另绑定`committee_version`及`proof_type=relay-quorum/v1`。统一配置工具、两种平台的参数映射及独立验证节点配置见[多机构核验说明](../docs/多机构核验说明.md)。
+
 ## 4. 测试与部署范围
 
 Go合约在 `trace_anchor/` 执行 `go test ./...`。Solidity先在后端运行 `mvn test`生成SDK向量，再在 `fisco/` 执行 `npm test`。具体范围、记录和前置条件见[测试说明](../docs/测试说明.md)。
+
+首次运行Solidity测试前，在`fisco/`执行`npm ci --ignore-scripts`安装锁定依赖。合约本地测试无需启动节点；两类合约的实链部署与中继验收按[异构链Docker说明](../deploy/heterogeneous/README.md)执行。配套单机网络未配置多机构联合核验服务，不能将其授权中继验收视为联合核验实网测试。
 
 旧合约状态不会自动迁入当前v2合约；实际升级和数据迁移应按部署环境处理。

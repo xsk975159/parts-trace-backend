@@ -121,6 +121,50 @@ test('错误PKCS1填充、算法标识及摘要均被拒绝',async()=> {
 test('小于2048位的受信RSA公钥不能登记',async()=> {await rejected(contract.set_relay_key('sub-production','0x'+'ff'.repeat(128),'0x010001'));});
 
 const sdkVectorFile=new URL('../../../target/fisco-codec-vectors.json',import.meta.url);
+const quorumVector=JSON.parse(fs.readFileSync(new URL('../../trace_anchor/testdata/quorum-vector.json',import.meta.url)));
+const quorumIds=Object.keys(quorumVector.policy.members).sort();
+const committeeArguments=[quorumVector.policy.version,quorumIds,quorumIds.map(id=>quorumVector.policy.members[id].organization),
+  quorumIds.map(id=>keyParts(quorumVector.policy.members[id].publicKey)[0]),quorumIds.map(id=>keyParts(quorumVector.policy.members[id].publicKey)[1])];
+const configureCommittee=()=>send(contract.configure_relay_committee(...committeeArguments));
+const quorumSignatures=ids=>ids.map(id=>hexlify(Buffer.from(quorumVector.signatures[id]||'', 'base64')));
+
+test('Java生成的三机构联合签名可以通过Solidity验证并幂等重试',async()=>{
+  await configureCommittee();const ids=quorumIds.slice(0,3);
+  for(let i=0;i<2;i++)await send(contract.receive_cross_anchor_quorum(fields(quorumVector.arguments),'1',ids,quorumSignatures(ids)));
+  assert.deepEqual(Array.from(await contract.get_cross_anchor('sub-production','quorum-source-001')),[hashA,'quorum-cid','did:test:quorum']);
+});
+test('签名不足、重复节点和未知节点均不能通过联合核验',async()=>{
+  await configureCommittee();
+  for(const ids of [quorumIds.slice(0,2),['node0','node0','node1'],['node0','node1','unknown']])
+    await rejected(contract.receive_cross_anchor_quorum(fields(quorumVector.arguments),'1',ids,quorumSignatures(ids)));
+  assert.equal((await contract.get_cross_anchor('sub-production','quorum-source-001'))[0],'');
+});
+test('开启委员会后旧单中继入口不能绕过门槛',async()=>{
+  await configureCommittee();await rejected(contract.receive_cross_anchor(fields(javaVector.arguments),hexlify(Buffer.from(javaVector.arguments.signature,'base64'))));
+});
+test('联合确认拒绝内容篡改、错误版本和过期消息',async()=>{
+  await configureCommittee();const ids=quorumIds.slice(0,3);
+  await rejected(contract.receive_cross_anchor_quorum(fields({...quorumVector.arguments,object_cid:'changed'}),'1',ids,quorumSignatures(ids)));
+  await rejected(contract.receive_cross_anchor_quorum(fields(quorumVector.arguments),'2',ids,quorumSignatures(ids)));
+  await rejected(contract.receive_cross_anchor_quorum(fields({...quorumVector.arguments,issued_at:'1699990000'}),'1',ids,quorumSignatures(ids)));
+});
+test('委员会配置只允许所有者且不能重复版本或使用重复机构密钥',async()=>{
+  await rejected(contract.connect(writer).configure_relay_committee(...committeeArguments));await configureCommittee();
+  await rejected(contract.configure_relay_committee(...committeeArguments));
+  const invalid=structuredClone(committeeArguments);invalid[0]='2';invalid[2][1]=invalid[2][0];await rejected(contract.configure_relay_committee(...invalid));
+  const repeated=structuredClone(committeeArguments);repeated[0]='2';repeated[3][1]=repeated[3][0];await rejected(contract.configure_relay_committee(...repeated));
+});
+test('目标合约可以返回委员会版本、门槛、机构和公钥',async()=>{
+  await configureCommittee();const actual=await contract.relay_policy();assert.equal(actual[0],'1');assert.equal(actual[1],3n);
+  assert.deepEqual(Array.from(actual[2]),quorumIds);assert.deepEqual(Array.from(actual[3]),committeeArguments[2]);
+  assert.deepEqual(Array.from(actual[4]),committeeArguments[3]);assert.deepEqual(Array.from(actual[5]),committeeArguments[4]);
+});
+const quorumSdkFile=new URL('../../../target/fisco-quorum-codec-vectors.json',import.meta.url);
+test('FISCO原生SDK编码的委员会配置和联合签名调用可在EVM执行',{skip:!fs.existsSync(quorumSdkFile)},async()=>{
+  const vectors=JSON.parse(fs.readFileSync(quorumSdkFile));
+  for(const item of vectors.writes)await send(owner.sendTransaction({to:await contract.getAddress(),data:item.data}));
+  assert.equal((await contract.get_cross_anchor('sub-production','quorum-source-001'))[0],hashA);
+});
 test('FISCO原生Java SDK生成的ABI调用可被合约执行',{skip:!fs.existsSync(sdkVectorFile)},async()=> {
   const vectors=JSON.parse(fs.readFileSync(sdkVectorFile));const from=await owner.getAddress();
   const deploymentHash=await provider.send('eth_sendTransaction',[{from,data:vectors.deploymentData,gas:'0x7a1200'}]);

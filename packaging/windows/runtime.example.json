@@ -1,0 +1,11 @@
+{
+  "databaseHost": "127.0.0.1",
+  "databasePort": 3306,
+  "databaseUser": "root",
+  "serverAddress": "127.0.0.1",
+  "serverPort": 8080,
+  "chainMode": "db",
+  "objectMode": "db",
+  "secretsFile": "data/startup-secrets.json",
+  "additionalConfig": ""
+}

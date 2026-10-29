@@ -857,3 +857,18 @@ CREATE TABLE IF NOT EXISTS chain_task (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 UPDATE anomaly_rule SET status=0 WHERE JSON_VALID(`condition`)=0 OR JSON_VALID(action)=0;
+
+-- 多机构核验凭据；已有库单独执行V20261026__relay_confirmation.sql。
+DROP TABLE IF EXISTS relay_confirmation;
+CREATE TABLE relay_confirmation (
+ id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+ record_id BIGINT NOT NULL,
+ committee_version VARCHAR(16) NOT NULL,
+ required_votes INT NOT NULL,
+ valid_votes INT NOT NULL DEFAULT 0,
+ state VARCHAR(32) NOT NULL,
+ proof_json MEDIUMTEXT NULL,
+ last_error VARCHAR(1024) NULL,
+ updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE KEY uk_relay_confirmation_record(record_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

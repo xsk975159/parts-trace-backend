@@ -17,12 +17,18 @@ contract TraceAnchor {
     mapping(bytes32 => Credential) private credentials;
     mapping(string => RelayKey) private relayKeys;
     mapping(bytes32 => CrossAnchor) private crossAnchors;
+    string private committeeVersion = "0";
+    uint256 private committeeThreshold;
+    string[] private committeeIds;
+    mapping(string => RelayKey) private validatorKeys;
+    mapping(string => string) private validatorOrganizations;
 
     event AnchorSaved(string businessType, string businessId, string dataHash);
     event CredentialChanged(string partsDid, string vcId, bool revoked);
     event CrossAnchorReceived(string sourceChain, string sourceTx, bytes32 contentHash);
     event WriterChanged(address writer, bool enabled);
     event RelayKeyChanged(string sourceChain);
+    event RelayCommitteeChanged(string version, uint256 threshold);
 
     modifier onlyOwner() { require(msg.sender == owner, "owner required"); _; }
     modifier onlyWriter() { require(msg.sender == owner || writers[msg.sender], "writer not authorized"); _; }
@@ -62,11 +68,48 @@ contract TraceAnchor {
 
     function setKey(string memory sourceChain, bytes memory modulus, bytes memory exponent) private {
         require(identifier(sourceChain, 64), "invalid source chain");
+        validateKey(modulus, exponent);
+        relayKeys[sourceChain] = RelayKey(modulus, exponent);
+        emit RelayKeyChanged(sourceChain);
+    }
+
+    function validateKey(bytes memory modulus, bytes memory exponent) private pure {
         require(modulus.length >= 256 && modulus.length <= 512 && uint8(modulus[0]) >= 128
             && uint8(modulus[modulus.length - 1]) % 2 == 1, "RSA modulus must be 2048-4096 bits");
         require(exponent.length == 3 && exponent[0] == 0x01 && exponent[1] == 0x00 && exponent[2] == 0x01, "RSA exponent must be 65537");
-        relayKeys[sourceChain] = RelayKey(modulus, exponent);
-        emit RelayKeyChanged(sourceChain);
+    }
+
+    function configure_relay_committee(string calldata version, string[] calldata ids,
+        string[] calldata organizations, bytes[] calldata moduli, bytes[] calldata exponents) external onlyOwner
+    {
+        require(bytes(version).length <= 9 && bytes(version).length > 0 && bytes(version)[0] != 0x30
+            && number(version) == number(committeeVersion) + 1, "committee version must increase by one");
+        require(ids.length >= 4 && ids.length <= 10 && (ids.length - 1) % 3 == 0
+            && organizations.length == ids.length && moduli.length == ids.length && exponents.length == ids.length, "invalid committee arrays");
+        for (uint256 i; i < committeeIds.length; i++) {
+            delete validatorKeys[committeeIds[i]]; delete validatorOrganizations[committeeIds[i]];
+        }
+        delete committeeIds;
+        for (uint256 i; i < ids.length; i++) {
+            require(identifier(ids[i],64) && identifier(organizations[i],64) && validatorKeys[ids[i]].modulus.length == 0, "invalid or duplicate validator");
+            validateKey(moduli[i],exponents[i]);
+            for (uint256 j; j < i; j++) {
+                require(!equal(organizations[i],organizations[j]) && sha256(moduli[i]) != sha256(moduli[j]), "duplicate organization or RSA key");
+            }
+            validatorKeys[ids[i]] = RelayKey(moduli[i],exponents[i]);validatorOrganizations[ids[i]]=organizations[i];committeeIds.push(ids[i]);
+        }
+        committeeVersion=version;committeeThreshold=2*((ids.length-1)/3)+1;
+        emit RelayCommitteeChanged(version,committeeThreshold);
+    }
+
+    function relay_policy() external view returns (string memory version, uint256 threshold, string[] memory ids,
+        string[] memory organizations, bytes[] memory moduli, bytes[] memory exponents)
+    {
+        version=committeeVersion;threshold=committeeThreshold;ids=committeeIds;
+        organizations=new string[](ids.length);moduli=new bytes[](ids.length);exponents=new bytes[](ids.length);
+        for(uint256 i;i<ids.length;i++) {
+            organizations[i]=validatorOrganizations[ids[i]];moduli[i]=validatorKeys[ids[i]].modulus;exponents[i]=validatorKeys[ids[i]].exponent;
+        }
     }
 
     function save_anchor(string calldata businessType, string calldata businessId, string calldata dataHash,
@@ -118,6 +161,29 @@ contract TraceAnchor {
 
     // 字段顺序：源链、源交易、源高度、业务类型、业务编号、主体、摘要、CID、目标链、时间。
     function receive_cross_anchor(string[] calldata fields, bytes calldata signature) external onlyWriter {
+        require(committeeThreshold == 0, "committee confirmation required");
+        validateCrossFields(fields);
+        RelayKey storage relayKey = relayKeys[fields[0]];
+        require(RsaSha256.verify(sha256(message(fields,"")), signature, relayKey.modulus, relayKey.exponent), "relay signature rejected");
+        storeCrossAnchor(fields);
+    }
+
+    function receive_cross_anchor_quorum(string[] calldata fields, string calldata version,
+        string[] calldata ids, bytes[] calldata signatures) external onlyWriter
+    {
+        require(committeeThreshold > 0 && equal(version,committeeVersion) && ids.length >= committeeThreshold
+            && ids.length <= committeeIds.length && signatures.length == ids.length, "committee version or quorum mismatch");
+        validateCrossFields(fields);
+        bytes32 digest=sha256(message(fields,version));
+        for(uint256 i;i<ids.length;i++) {
+            for(uint256 j;j<i;j++)require(!equal(ids[i],ids[j]),"duplicate validator");
+            RelayKey storage key=validatorKeys[ids[i]];
+            require(RsaSha256.verify(digest,signatures[i],key.modulus,key.exponent),"validator signature rejected");
+        }
+        storeCrossAnchor(fields);
+    }
+
+    function validateCrossFields(string[] calldata fields) private view {
         require(fields.length == 10 && equal(fields[8], chainCode), "invalid target or fields");
         require(identifier(fields[0], 64) && bytes(fields[1]).length > 0 && bytes(fields[1]).length <= 256
             && decimal(fields[2]) && identifier(fields[3], 64) && decimal(fields[4]) && validDid(fields[5]) && validHash(fields[6]), "invalid cross-chain identity");
@@ -125,8 +191,10 @@ contract TraceAnchor {
         uint256 nowSeconds = block.timestamp > 1000000000000 ? block.timestamp / 1000 : block.timestamp;
         uint256 issuedAt = number(fields[9]);
         require(issuedAt <= nowSeconds + 60 && (issuedAt >= nowSeconds || nowSeconds - issuedAt <= 300), "relay message expired");
-        RelayKey storage relayKey = relayKeys[fields[0]];
-        require(RsaSha256.verify(sha256(message(fields)), signature, relayKey.modulus, relayKey.exponent), "relay signature rejected");
+        require(relayKeys[fields[0]].modulus.length > 0,"untrusted source chain");
+    }
+
+    function storeCrossAnchor(string[] calldata fields) private {
         bytes32 key = sha256(abi.encode(fields[0], fields[1]));
         string[] memory contentFields = new string[](9);
         for (uint256 i; i < 9; i++) contentFields[i] = fields[i];
@@ -142,11 +210,15 @@ contract TraceAnchor {
         return (anchor.dataHash, anchor.objectCid, anchor.partsDid);
     }
 
-    function message(string[] calldata f) private pure returns (bytes memory) {
+    function message(string[] calldata f, string memory version) private pure returns (bytes memory) {
         string[10] memory names = ["business_id", "business_type", "data_hash", "issued_at", "object_cid", "parts_did", "source_block_height", "source_chain_id", "source_tx_hash", "target_chain_id"];
         uint256[10] memory indices = [uint256(4), 3, 6, 9, 7, 5, 2, 0, 1, 8];
         bytes memory result;
-        for (uint256 i; i < 10; i++) result = abi.encodePacked(result, names[i], "=", f[indices[i]], "\n");
+        for (uint256 i; i < 10; i++) {
+            if(bytes(version).length>0 && i==2)result=abi.encodePacked(result,"committee_version=",version,"\n");
+            if(bytes(version).length>0 && i==6)result=abi.encodePacked(result,"proof_type=relay-quorum/v1\n");
+            result = abi.encodePacked(result, names[i], "=", f[indices[i]], "\n");
+        }
         return result;
     }
 
